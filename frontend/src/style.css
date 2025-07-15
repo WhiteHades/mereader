@@ -1,0 +1,192 @@
+:root {
+  /* light theme */
+  --color-primary: #0071e3;
+  --color-primary-hover: #0062c3;
+  --color-primary-rgb: 0, 113, 227;
+  --color-secondary: #34c759;
+  --color-secondary-rgb: 52, 199, 89;
+  --color-danger: #ff3b30;
+  --color-background: #ffffff;
+  --color-background-alt: #f6f6f6;
+  --color-background-rgb: 255, 255, 255;
+  --color-surface: #ffffff;
+  --color-surface-rgb: 255, 255, 255;
+  --color-text: #333333;
+  --color-text-rgb: 51, 51, 51;
+  --color-text-secondary: #6e6e73;
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-shadow: rgba(0, 0, 0, 0.1);
+  --color-scroll-thumb: rgba(0, 0, 0, 0.1);
+  --glass-blur: blur(16px);
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-dark-bg: rgba(30, 30, 30, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.2);
+
+  /* UI */
+  --header-height: 48px;
+  --border-radius: 8px;
+  --box-shadow: 0 4px 16px var(--color-shadow);
+
+  /* typography */
+  --reader-font: 'Literata', Georgia, 'Times New Roman';
+  --font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --line-height: 1.5;
+
+  /* animations */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.3s ease;
+}
+
+/* dark theme */
+.theme-dark {
+  --color-primary: #858585;
+  --color-primary-hover: #0074e0;
+  --color-primary-rgb: 10, 132, 255;
+  --color-secondary: #30d158;
+  --color-secondary-rgb: 48, 209, 88;
+  --color-danger: #ff453a;
+  --color-background: #1a1a1a;
+  --color-background-alt: #252525;
+  --color-background-rgb: 26, 26, 26;
+  --color-surface: #2c2c2e;
+  --color-surface-rgb: 44, 44, 46;
+  --color-text: #f5f5f7;
+  --color-text-rgb: 245, 245, 247;
+  --color-text-secondary: #98989d;
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-shadow: rgba(0, 0, 0, 0.3);
+  --color-scroll-thumb: rgba(255, 255, 255, 0.1);
+}
+
+/* sepia theme */
+.theme-sepia {
+  --color-primary: #a05b2c;
+  --color-primary-hover: #8a4b1e;
+  --color-primary-rgb: 160, 91, 44;
+  --color-secondary: #8a775a;
+  --color-secondary-rgb: 138, 119, 90;
+  --color-background: #f7f1e3;
+  --color-background-alt: #f0e9d8;
+  --color-background-rgb: 247, 241, 227;
+  --color-surface: #f7f1e3;
+  --color-surface-rgb: 247, 241, 227;
+  --color-text: #5f4b32;
+  --color-text-rgb: 95, 75, 50;
+  --color-text-secondary: #8a775a;
+  --color-border: rgba(95, 75, 50, 0.2);
+  --color-shadow: rgba(95, 75, 50, 0.1);
+  --color-scroll-thumb: rgba(95, 75, 50, 0.1);
+}
+
+/* reset & base styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: var(--font-family), serif;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height);
+  color: var(--color-text);
+  background-color: var(--color-background);
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--color-primary-hover);
+}
+
+button {
+  cursor: pointer;
+  font-family: var(--font-family), serif;
+}
+
+/* layout classes */
+.container {
+  width: 100%;
+  height: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.h-full {
+  height: 100%;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--color-background-alt);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-scroll-thumb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-secondary);
+}

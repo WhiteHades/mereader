@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+python-multipart
+sqlalchemy
+qdrant-client
+EbookLib
+beautifulsoup4
+lxml
+Pillow
+httpx
+nltk
+regex
+python-dotenv
+typing_extensions
+rank-bm25

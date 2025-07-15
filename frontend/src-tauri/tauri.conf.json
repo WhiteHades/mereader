@@ -1,0 +1,91 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev",
+    "devPath": "http://localhost:5173",
+    "distDir": "../dist"
+  },
+  "package": {
+    "productName": "MeReader",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "shell": {
+        "all": false,
+        "open": true
+      },
+      "dialog": {
+        "all": true,
+        "open": true,
+        "save": true
+      },
+      "fs": {
+        "all": false,
+        "readFile": true,
+        "readDir": true,
+        "exists": true,
+        "scope": ["**/*.epub"]
+      },
+      "path": {
+        "all": true
+      },
+      "http": {
+        "all": true,
+        "request": true,
+        "scope": ["http://localhost:8000/*"]
+      }
+    },
+    "bundle": {
+      "active": true,
+      "category": "Education",
+      "copyright": "",
+      "deb": {
+        "depends": []
+      },
+      "externalBin": [],
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "identifier": "com.mereader.app",
+      "longDescription": "MeReader - AI-enhanced ebook reader",
+      "macOS": {
+        "entitlements": null,
+        "exceptionDomain": "",
+        "frameworks": [],
+        "providerShortName": null,
+        "signingIdentity": null
+      },
+      "resources": [],
+      "shortDescription": "MeReader",
+      "targets": "all",
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": ""
+      }
+    },
+    "security": {
+      "csp": "default-src 'self' blob: data: filesystem: ws: http: https:; img-src 'self' asset: https://asset.localhost blob:; connect-src 'self' http://localhost:8000 http://localhost:8000/api/*; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; frame-src blob: data: filesystem: about: 'self'; child-src blob: data: filesystem: about: 'unsafe-inline' 'self'; frame-ancestors 'self';"
+    },
+    "updater": {
+      "active": false
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 800,
+        "minHeight": 600,
+        "width": 1200,
+        "minWidth": 800,
+        "resizable": true,
+        "title": "MeReader"
+      }
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+"""
+MeReader core package
+"""

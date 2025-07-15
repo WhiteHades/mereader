@@ -1,0 +1,127 @@
+# Backend Python files
+backend/**/__pycache__/
+backend/**/*.py[cod]
+backend/**/*$py.class
+backend/**/*.so
+backend/.Python
+backend/build/
+backend/develop-eggs/
+backend/dist/
+backend/downloads/
+backend/eggs/
+backend/.eggs/
+backend/lib/
+backend/lib64/
+backend/parts/
+backend/sdist/
+backend/var/
+backend/wheels/
+backend/**/*.egg-info/
+backend/.installed.cfg
+backend/**/*.egg
+backend/MANIFEST
+
+# Backend virtual environments
+backend/venv/
+backend/env/
+backend/ENV/
+backend/env.bak/
+backend/venv.bak/
+backend/.venv/
+
+# Backend testing and coverage
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/.mypy_cache/
+backend/.dmypy.json
+backend/dmypy.json
+
+# Backend data directories and user content
+backend/data/
+backend/evaluation_results/
+backend/tests/data/
+
+# Backend cache and database files
+backend/**/*.pkl
+backend/**/*.cache
+backend/**/*.db
+backend/**/*.db-shm
+backend/**/*.db-wal
+backend/**/*.sqlite
+backend/**/*.sqlite3
+
+# Frontend Node.js files
+frontend/node_modules/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+frontend/lerna-debug.log*
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+
+# Frontend Tauri
+frontend/src-tauri/target/
+frontend/src-tauri/Cargo.lock
+
+# Frontend build and cache
+frontend/.parcel-cache
+frontend/.next
+frontend/.nuxt
+frontend/.out
+frontend/.storybook-out
+frontend/.npm
+frontend/.eslintcache
+frontend/.stylelintcache
+frontend/.rpt2_cache/
+frontend/.rts2_cache_cjs/
+frontend/.rts2_cache_es/
+frontend/.rts2_cache_umd/
+frontend/.node_repl_history
+frontend/*.tgz
+frontend/.yarn-integrity
+frontend/coverage/
+frontend/*.lcov
+frontend/.nyc_output
+frontend/jspm_packages/
+frontend/*.local
+frontend/src-tauri/WixTools 
+
+# Environment files
+backend/.env*
+frontend/.env*
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS generated files (global)
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Logs (global)
+logs/
+*.log
+
+# Temporary folders (global)
+tmp/
+temp/
