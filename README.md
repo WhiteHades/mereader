@@ -11,7 +11,9 @@ Local LLM powered E-book reader for EPUB files.
 ```bash
 cd backend
 python -m venv venv
-venv\Scripts\activate
+# windows: venv\Scripts\activate
+# linux/mac: source venv/bin/activate
+source venv/bin/activate
 pip install -r requirements.txt
 python -m app.api.main
 ```
