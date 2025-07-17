@@ -1,54 +1,84 @@
 <template>
-  <div class="content-viewer" :class="theme" ref="readerContainer">
+  <div
+    class="content-viewer"
+    :class="theme"
+    ref="readerContainer"
+  >
     <!-- loading -->
-    <div v-if="loading" class="loading-overlay">
+    <div
+      v-if="loading"
+      class="loading-overlay"
+    >
       <div class="loading-spinner"></div>
       <p>Loading book...</p>
     </div>
 
     <!-- error -->
-    <div v-if="error" class="error-overlay">
+    <div
+      v-if="error"
+      class="error-overlay"
+    >
       <div class="error-icon">⚠️</div>
       <h3>{{ error }}</h3>
-      <button @click="reload" class="retry-button">Retry</button>
+      <button
+        @click="reload"
+        class="retry-button"
+      >
+        Retry
+      </button>
     </div>
 
     <!-- reader container -->
-    <div class="content-container" ref="contentContainer" v-show="!loading && !error">
-      <div class="book-content" ref="bookContent" v-html="processedContent"></div>
+    <div
+      class="content-container"
+      ref="contentContainer"
+      v-show="!loading && !error"
+    >
+      <div
+        class="book-content"
+        ref="bookContent"
+        v-html="processedContent"
+      ></div>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue';
+import {
+  ref,
+  onMounted,
+  onBeforeUnmount,
+  watch,
+  nextTick,
+  computed,
+} from "vue";
 
 export default {
-  name: 'ContentViewer',
+  name: "ContentViewer",
   props: {
     bookId: {
       type: String,
-      required: true
+      required: true,
     },
     initialLocation: {
       type: Number,
-      default: 1
+      default: 1,
     },
     initialProgress: {
       type: Number,
-      default: 0
+      default: 0,
     },
     apiBaseUrl: {
       type: String,
-      default: 'http://localhost:8000/api'
+      default: "http://localhost:8000/api",
     },
     theme: {
       type: String,
-      default: 'dark'
-    }
+      default: "dark",
+    },
   },
 
-  emits: ['locationChanged', 'ready', 'error', 'chapterChanged'],
+  emits: ["locationChanged", "ready", "error", "chapterChanged"],
 
   setup(props, { emit }) {
     const loading = ref(true);
@@ -57,7 +87,7 @@ export default {
     const readerContainer = ref(null);
     const bookContent = ref(null);
 
-    const currentContent = ref('');
+    const currentContent = ref("");
     const currentLocation = ref(props.initialLocation || 1);
     const currentChapter = ref(null);
     const chapters = ref([]);
@@ -71,11 +101,14 @@ export default {
       return cleanHtmlContent(currentContent.value);
     });
 
-    watch(() => props.theme, (newTheme) => {
-      if (newTheme) {
-        applyThemeToContent(newTheme);
+    watch(
+      () => props.theme,
+      (newTheme) => {
+        if (newTheme) {
+          applyThemeToContent(newTheme);
+        }
       }
-    });
+    );
 
     function handleResize() {
       if (contentContainer.value) {
@@ -88,7 +121,7 @@ export default {
     function applyThemeToContent(theme) {
       if (bookContent.value) {
         const element = bookContent.value;
-        element.classList.remove('light', 'dark', 'sepia');
+        element.classList.remove("light", "dark", "sepia");
         element.classList.add(theme);
       }
     }
@@ -102,12 +135,16 @@ export default {
         await nextTick();
 
         if (!contentContainer.value) {
-          throw new Error('Content container element not found');
+          throw new Error("Content container element not found");
         }
 
-        const bookDetailsResponse = await fetch(`${props.apiBaseUrl}/books/${props.bookId}`);
+        const bookDetailsResponse = await fetch(
+          `${props.apiBaseUrl}/books/${props.bookId}`
+        );
         if (!bookDetailsResponse.ok) {
-          throw new Error(`Failed to fetch book details: ${bookDetailsResponse.status}`);
+          throw new Error(
+            `Failed to fetch book details: ${bookDetailsResponse.status}`
+          );
         }
 
         const bookDetails = await bookDetailsResponse.json();
@@ -115,11 +152,16 @@ export default {
         chapters.value = bookDetails.chapters || [];
 
         if (debugMode.value) {
-          console.log(`[Init] Total locations: ${totalLocations.value}, Chapters: ${chapters.value.length}`);
-          console.log(`[Init] Initial location provided: ${props.initialLocation}`);
+          console.log(
+            `[Init] Total locations: ${totalLocations.value}, Chapters: ${chapters.value.length}`
+          );
+          console.log(
+            `[Init] Initial location provided: ${props.initialLocation}`
+          );
         }
 
-        let targetLocation = props.initialLocation > 0 ? props.initialLocation : 1;
+        let targetLocation =
+          props.initialLocation > 0 ? props.initialLocation : 1;
         let targetChapter = findChapterByLocation(targetLocation);
 
         if (!targetChapter && chapters.value.length > 0) {
@@ -127,28 +169,29 @@ export default {
           targetLocation = targetChapter.start_location;
 
           if (debugMode.value) {
-            console.log(`[Init] No chapter found for location ${props.initialLocation}, using first chapter starting at ${targetLocation}`);
+            console.log(
+              `[Init] No chapter found for location ${props.initialLocation}, using first chapter starting at ${targetLocation}`
+            );
           }
         }
 
         if (targetChapter) {
           await loadChapterContent(targetChapter, targetLocation);
         } else {
-          throw new Error('No chapters found in the book');
+          throw new Error("No chapters found in the book");
         }
 
-        emit('ready', {
+        emit("ready", {
           totalLocations: totalLocations.value,
-          chapters: chapters.value
+          chapters: chapters.value,
         });
 
         loading.value = false;
-
       } catch (err) {
-        console.error('Error initializing content reader:', err);
+        console.error("Error initializing content reader:", err);
         error.value = `Failed to load book: ${err.message}`;
         loading.value = false;
-        emit('error', err);
+        emit("error", err);
       }
     }
 
@@ -159,21 +202,31 @@ export default {
         hasScrolledToInitialPosition.value = false;
 
         if (debugMode.value) {
-          console.log(`[Chapter] Loading chapter ${chapter.title} with target location ${targetLocation}`);
+          console.log(
+            `[Chapter] Loading chapter ${chapter.title} with target location ${targetLocation}`
+          );
         }
 
-        const response = await fetch(`${props.apiBaseUrl}/content/chapter/${props.bookId}/${chapter.id}`);
+        const response = await fetch(
+          `${props.apiBaseUrl}/content/chapter/${props.bookId}/${chapter.id}`
+        );
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch chapter content: ${response.status}`);
+          throw new Error(
+            `Failed to fetch chapter content: ${response.status}`
+          );
         }
 
         const data = await response.json();
 
-        currentContent.value = processImagePaths(data.content, props.bookId, props.apiBaseUrl);
+        currentContent.value = processImagePaths(
+          data.content,
+          props.bookId,
+          props.apiBaseUrl
+        );
         currentChapter.value = chapter;
 
-        emit('chapterChanged', chapter);
+        emit("chapterChanged", chapter);
         await nextTick();
         applyThemeToContent(props.theme);
 
@@ -184,59 +237,80 @@ export default {
 
           isNavigating.value = false;
         }, 100);
-
       } catch (err) {
-        console.error('Error loading chapter content:', err);
+        console.error("Error loading chapter content:", err);
         error.value = `Failed to load chapter content: ${err.message}`;
         isNavigating.value = false;
       }
     }
 
     function findChapterByLocation(location) {
-      return chapters.value.find(chapter =>
-        location >= chapter.start_location && location <= chapter.end_location
+      return chapters.value.find(
+        (chapter) =>
+          location >= chapter.start_location && location <= chapter.end_location
       );
     }
 
     function scrollToLocation(location) {
-      if (!currentChapter.value || !contentContainer.value || !bookContent.value) return;
+      if (
+        !currentChapter.value ||
+        !contentContainer.value ||
+        !bookContent.value
+      )
+        return;
 
-      const chapterLength = currentChapter.value.end_location - currentChapter.value.start_location + 1;
-      const locationWithinChapter = location - currentChapter.value.start_location;
+      const chapterLength =
+        currentChapter.value.end_location -
+        currentChapter.value.start_location +
+        1;
+      const locationWithinChapter =
+        location - currentChapter.value.start_location;
 
-      const scrollPercentage = Math.min(1, Math.max(0, locationWithinChapter / chapterLength));
+      const scrollPercentage = Math.min(
+        1,
+        Math.max(0, locationWithinChapter / chapterLength)
+      );
 
-      const maxScroll = bookContent.value.scrollHeight - contentContainer.value.clientHeight;
-      const scrollPosition = Math.max(0, Math.min(maxScroll, scrollPercentage * maxScroll));
+      const maxScroll =
+        bookContent.value.scrollHeight - contentContainer.value.clientHeight;
+      const scrollPosition = Math.max(
+        0,
+        Math.min(maxScroll, scrollPercentage * maxScroll)
+      );
 
       contentContainer.value.scrollTop = scrollPosition;
 
       if (debugMode.value) {
-        console.log(`[Scroll] Scrolled to location ${location}, position ${Math.round(scrollPosition)}px (${Math.round(scrollPercentage * 100)}%)`);
-        console.log(`[Scroll] Chapter range: ${currentChapter.value.start_location}-${currentChapter.value.end_location}, Content height: ${bookContent.value.scrollHeight}px, Max scroll: ${maxScroll}px`);
+        console.log(
+          `[Scroll] Scrolled to location ${location}, position ${Math.round(
+            scrollPosition
+          )}px (${Math.round(scrollPercentage * 100)}%)`
+        );
+        console.log(
+          `[Scroll] Chapter range: ${currentChapter.value.start_location}-${currentChapter.value.end_location}, Content height: ${bookContent.value.scrollHeight}px, Max scroll: ${maxScroll}px`
+        );
       }
 
       currentLocation.value = location;
 
-      const progress = totalLocations.value > 0
-        ? (location / totalLocations.value) * 100
-        : 0;
+      const progress =
+        totalLocations.value > 0 ? (location / totalLocations.value) * 100 : 0;
 
-      emit('locationChanged', {
+      emit("locationChanged", {
         location: location,
         chapterId: currentChapter.value.id,
         chapterTitle: currentChapter.value.title,
-        progress: progress
+        progress: progress,
       });
     }
 
     function setupScrollHandler() {
       nextTick(() => {
         if (!contentContainer.value || !bookContent.value) return;
-        contentContainer.value.removeEventListener('scroll', handleScroll);
-        contentContainer.value.addEventListener('scroll', handleScroll);
+        contentContainer.value.removeEventListener("scroll", handleScroll);
+        contentContainer.value.addEventListener("scroll", handleScroll);
         if (debugMode.value) {
-          console.log('[Scroll] Scroll handler set up');
+          console.log("[Scroll] Scroll handler set up");
         }
       });
     }
@@ -247,17 +321,28 @@ export default {
 
       scrollThrottle.value = setTimeout(() => {
         scrollThrottle.value = null;
-        if (!contentContainer.value || !bookContent.value || !currentChapter.value) return;
+        if (
+          !contentContainer.value ||
+          !bookContent.value ||
+          !currentChapter.value
+        )
+          return;
 
         const scrollTop = contentContainer.value.scrollTop;
         const scrollHeight = bookContent.value.scrollHeight;
         const containerHeight = contentContainer.value.clientHeight;
         const maxScroll = scrollHeight - containerHeight;
 
-        const scrollPercentage = maxScroll <= 0 ? 0 : Math.min(1, Math.max(0, scrollTop / maxScroll));
+        const scrollPercentage =
+          maxScroll <= 0 ? 0 : Math.min(1, Math.max(0, scrollTop / maxScroll));
 
-        const chapterLength = currentChapter.value.end_location - currentChapter.value.start_location + 1;
-        const newLocation = Math.floor(currentChapter.value.start_location + (chapterLength * scrollPercentage));
+        const chapterLength =
+          currentChapter.value.end_location -
+          currentChapter.value.start_location +
+          1;
+        const newLocation = Math.floor(
+          currentChapter.value.start_location + chapterLength * scrollPercentage
+        );
 
         const boundedLocation = Math.max(
           currentChapter.value.start_location,
@@ -270,7 +355,7 @@ export default {
           showChapterEndMessage.value = true;
 
           if (debugMode.value) {
-            console.log('[Scroll] Reached end of chapter');
+            console.log("[Scroll] Reached end of chapter");
           }
         } else if (!isNearEnd && showChapterEndMessage.value) {
           showChapterEndMessage.value = false;
@@ -279,19 +364,24 @@ export default {
         if (boundedLocation !== currentLocation.value) {
           currentLocation.value = boundedLocation;
 
-          const progress = totalLocations.value > 0
-            ? (boundedLocation / totalLocations.value) * 100
-            : 0;
+          const progress =
+            totalLocations.value > 0
+              ? (boundedLocation / totalLocations.value) * 100
+              : 0;
 
-          emit('locationChanged', {
+          emit("locationChanged", {
             location: boundedLocation,
             chapterId: currentChapter.value.id,
             chapterTitle: currentChapter.value.title,
-            progress: progress
+            progress: progress,
           });
 
           if (debugMode.value) {
-            console.log(`[Scroll] Updated location to ${boundedLocation} (${Math.round(progress)}%)`);
+            console.log(
+              `[Scroll] Updated location to ${boundedLocation} (${Math.round(
+                progress
+              )}%)`
+            );
           }
         }
       }, 150);
@@ -300,7 +390,9 @@ export default {
     function nextChapter() {
       if (isNavigating.value) return;
 
-      const currentChapterIndex = chapters.value.findIndex(ch => ch.id === currentChapter.value?.id);
+      const currentChapterIndex = chapters.value.findIndex(
+        (ch) => ch.id === currentChapter.value?.id
+      );
       if (currentChapterIndex < chapters.value.length - 1) {
         const nextChapter = chapters.value[currentChapterIndex + 1];
         loadChapterContent(nextChapter, nextChapter.start_location);
@@ -310,7 +402,9 @@ export default {
     function prevChapter() {
       if (isNavigating.value) return;
 
-      const currentChapterIndex = chapters.value.findIndex(ch => ch.id === currentChapter.value?.id);
+      const currentChapterIndex = chapters.value.findIndex(
+        (ch) => ch.id === currentChapter.value?.id
+      );
       if (currentChapterIndex > 0) {
         const prevChapter = chapters.value[currentChapterIndex - 1];
         loadChapterContent(prevChapter, prevChapter.start_location);
@@ -319,7 +413,10 @@ export default {
 
     async function goToLocation(location) {
       if (isNavigating.value) return;
-      const targetLocation = Math.max(1, Math.min(location, totalLocations.value || 1));
+      const targetLocation = Math.max(
+        1,
+        Math.min(location, totalLocations.value || 1)
+      );
       const targetChapter = findChapterByLocation(targetLocation);
 
       if (!targetChapter) {
@@ -327,7 +424,10 @@ export default {
         return;
       }
 
-      if (currentChapter.value && targetChapter.id === currentChapter.value.id) {
+      if (
+        currentChapter.value &&
+        targetChapter.id === currentChapter.value.id
+      ) {
         scrollToLocation(targetLocation);
       } else {
         await loadChapterContent(targetChapter, targetLocation);
@@ -337,25 +437,32 @@ export default {
     function handleKeyPress(e) {
       if (loading.value || error.value) return;
 
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")
+        return;
 
       switch (e.key) {
-        case 'ArrowRight':
+        case "ArrowRight":
           e.preventDefault();
           nextChapter();
           break;
-        case 'ArrowLeft':
+        case "ArrowLeft":
           e.preventDefault();
           prevChapter();
           break;
-        case ' ':
+        case " ":
           e.preventDefault();
           if (contentContainer.value) {
-            const isAtEnd = contentContainer.value.scrollTop + contentContainer.value.clientHeight >= bookContent.value.scrollHeight - 20;
+            const isAtEnd =
+              contentContainer.value.scrollTop +
+                contentContainer.value.clientHeight >=
+              bookContent.value.scrollHeight - 20;
             if (isAtEnd) {
               nextChapter();
             } else {
-              contentContainer.value.scrollBy({ top: contentContainer.value.clientHeight * 0.9, behavior: 'smooth' });
+              contentContainer.value.scrollBy({
+                top: contentContainer.value.clientHeight * 0.9,
+                behavior: "smooth",
+              });
             }
           }
           break;
@@ -369,27 +476,31 @@ export default {
     function processImagePaths(html, bookId, apiBaseUrl) {
       try {
         const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        const doc = parser.parseFromString(html, "text/html");
 
         // Debug: Log all images found
         console.log("Processing images in chapter");
 
         // Update image paths
-        const images = doc.querySelectorAll('img');
+        const images = doc.querySelectorAll("img");
         console.log(`Found ${images.length} images in chapter`);
 
         images.forEach((img, index) => {
-          const srcAttr = img.getAttribute('src');
+          const srcAttr = img.getAttribute("src");
           console.log(`Image ${index} original src: ${srcAttr}`);
 
-          if (srcAttr && !srcAttr.startsWith('http') && !srcAttr.startsWith('data:')) {
+          if (
+            srcAttr &&
+            !srcAttr.startsWith("http") &&
+            !srcAttr.startsWith("data:")
+          ) {
             // Get just the filename, strip any paths
-            const filename = srcAttr.split('/').pop();
+            const filename = srcAttr.split("/").pop();
             console.log(`Extracted filename: ${filename}`);
 
             // Set the full URL to the image endpoint
             const newSrc = `${apiBaseUrl}/content/image/${bookId}/${filename}`;
-            img.setAttribute('src', newSrc);
+            img.setAttribute("src", newSrc);
             console.log(`Updated src to: ${newSrc}`);
           }
         });
@@ -402,43 +513,49 @@ export default {
     }
 
     function cleanHtmlContent(html) {
-      if (!html) return '';
+      if (!html) return "";
 
       html = html
-          .replace(/<\?xml[^>]+\?>/g, '')
-          .replace(/<\/?(html|body)[^>]*>/gi, '')
-          .replace(/^\s*html[\s.,:!?]*(?=<|$)/i, '')
-          .replace(/^\s*html\b[\s.,:!?]*/i, '')
-          .replace(/\s{2,}/g, ' ')
-          .replace(/(\n\s*){2,}/g, '\n\n')
-          .trim()
+        .replace(/<\?xml[^>]+\?>/g, "")
+        .replace(/<\/?(html|body)[^>]*>/gi, "")
+        .replace(/^\s*html[\s.,:!?]*(?=<|$)/i, "")
+        .replace(/^\s*html\b[\s.,:!?]*/i, "")
+        .replace(/\s{2,}/g, " ")
+        .replace(/(\n\s*){2,}/g, "\n\n")
+        .trim();
 
-      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const doc = new DOMParser().parseFromString(html, "text/html");
       const firstNode = doc.body?.firstChild;
 
       if (firstNode?.textContent) {
-        firstNode.textContent = firstNode.textContent.replace(/^\s*html[\s.,:!?]*/i, '');
+        firstNode.textContent = firstNode.textContent.replace(
+          /^\s*html[\s.,:!?]*/i,
+          ""
+        );
       }
 
-      html = new XMLSerializer().serializeToString(doc.body)
-          .replace(/^<body[^>]*>/i, '')
-          .replace(/<\/body>$/i, '')
-          .trim();
+      html = new XMLSerializer()
+        .serializeToString(doc.body)
+        .replace(/^<body[^>]*>/i, "")
+        .replace(/<\/body>$/i, "")
+        .trim();
 
-      console.log('[CLEANED CONTENT]', html.slice(0, 200));
+      console.log("[CLEANED CONTENT]", html.slice(0, 200));
       return html;
     }
 
     onMounted(() => {
-      document.addEventListener('keydown', handleKeyPress);
-      window.addEventListener('resize', handleResize);
+      document.addEventListener("keydown", handleKeyPress);
+      window.addEventListener("resize", handleResize);
       initReader();
     });
 
     onBeforeUnmount(() => {
-      document.removeEventListener('keydown', handleKeyPress);
-      window.removeEventListener('resize', handleResize);
-      if (scrollThrottle.value) { clearTimeout(scrollThrottle.value); }
+      document.removeEventListener("keydown", handleKeyPress);
+      window.removeEventListener("resize", handleResize);
+      if (scrollThrottle.value) {
+        clearTimeout(scrollThrottle.value);
+      }
     });
 
     return {
@@ -459,7 +576,7 @@ export default {
       goToLocation,
       reload,
     };
-  }
+  },
 };
 </script>
 
@@ -524,7 +641,9 @@ export default {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .error-icon {
@@ -554,8 +673,14 @@ export default {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 :deep(.dark) {
@@ -584,7 +709,12 @@ export default {
   text-decoration: none;
 }
 
-:deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5), :deep(h6) {
+:deep(h1),
+:deep(h2),
+:deep(h3),
+:deep(h4),
+:deep(h5),
+:deep(h6) {
   margin-top: 1.5em;
   margin-bottom: 0.8em;
   white-space: normal;
@@ -592,7 +722,8 @@ export default {
   word-break: break-word;
 }
 
-:deep(pre), :deep(code) {
+:deep(pre),
+:deep(code) {
   white-space: pre-wrap;
 }
 
