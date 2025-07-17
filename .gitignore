@@ -125,3 +125,5 @@ logs/
 # Temporary folders (global)
 tmp/
 temp/
+
+EPUB_IMPROVEMENT_PLAN.md
