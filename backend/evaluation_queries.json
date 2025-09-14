@@ -1,0 +1,152 @@
+[
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What was the first thought of Ivan Ilych's colleagues upon hearing of his death?",
+    "ground_truth": "So on receiving the news of Ivan Ilych’s death the first thought of each of the gentlemen in that private room was of the changes and promotions it might occasion among themselves or their acquaintances."
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What accident did Ivan Ilych have that he believed started his illness?",
+    "ground_truth": "Once when mounting a step-ladder to show the upholsterer, who did not understand, how he wanted the hangings draped, he mad a false step and slipped, but being a strong and agile man he clung on and only knocked his side against the knob of the window frame."
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "Who was Gerasim, and why did Ivan Ilych find comfort in his presence?",
+    "ground_truth": "Gerasim, the butler’s young assistant... Gerasim alone did not lie; everything showed that he alone understood the facts of the case and did not consider it necessary to disguise them, but simply felt sorry for his emaciated and enfeebled master."
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "Aside from his professional ambition and social vanity, what was Ivan Ilych's greatest pleasure?",
+    "ground_truth": "The pleasures connected with his work were pleasures of ambition; his social pleasures were those of vanity; but Ivan Ilych’s greatest pleasure was playing bridge."
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What syllogism from his logic studies did Ivan Ilych find difficult to apply to his own mortality?",
+    "ground_truth": "The syllogism he had learnt from Kiesewetter’s Logic: “Caius is a man, men are mortal, therefore Caius is mortal,” had always seemed to him correct as applied to Caius, but certainly not as applied to himself."
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What was the name of Ivan Ilych's wife?",
+    "ground_truth": "Praskovya Fedorovna Golovina"
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What tormented Ivan Ilych most during his illness, apart from the pain?",
+    "ground_truth": "What tormented Ivan Ilych most was the deception, the lie, which for some reason they all accepted, that he was not dying but was simply ill, and that he only need keep quiet and undergo a treatment and then something very good would result."
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What did Ivan Ilych realize about his life just before he died?",
+    "ground_truth": "it was revealed to him that though his life had not been what it should have been, this could still be rectified."
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What were Ivan Ilych's final thoughts to himself?",
+    "ground_truth": "“Death is finished,” he said to himself. “It is no more!”"
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "After visiting Ivan Ilych's home and speaking with the widow, how did his friend Peter Ivanovich spend the rest of the evening?",
+    "ground_truth": "He accordingly drove there and found them just finishing the first rubber, so that it was quite convenient for him to cut in."
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What did Lennie have in his pocket at the start of the book that George made him throw away?",
+    "ground_truth": "Jus’ a dead mouse, George. I didn’ kill it. Honest! I found it. I found it dead."
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "Describe the dream that George and Lennie share about their future.",
+    "ground_truth": "we’re gonna get the jack together and we’re gonna have a little house and a couple of acres an’ a cow and some pigs and... An’ live off the fatta the lan’... An’ have rabbits."
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What did George tell Lennie to do when they first meet the boss?",
+    "ground_truth": "you ain’t gonna say a word. You jus’ stand there and don’t say nothing."
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "Who is Crooks and where does he live on the ranch?",
+    "ground_truth": "Crooks, the negro stable buck, had his bunk in the harness room; a little shed that leaned off the wall of the barn."
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What does Slim give to Lennie?",
+    "ground_truth": "Slim's dog had puppies, and he gives one to Lennie."
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "Why was Candy so eager to join George and Lennie in buying the farm?",
+    "ground_truth": "They’ll can me purty soon. Jus’ as soon as I can’t swamp out no bunkhouses they’ll put me on the county. ... I won’t have no place to go, an’ I can’t get no more jobs."
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What really happened to Curley's hand?",
+    "ground_truth": "Curley’s fist was swinging when Lennie reached for it. The next minute Curley was flopping like a fish on a line, and his closed fist was lost in Lennie’s big hand."
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "How did Lennie kill Curley's wife?",
+    "ground_truth": "She jerked her head sideways, and Lennie’s fingers closed on her hair and hung on... he shook her; and her body flopped like a fish. And then she was still, for Lennie had broken her neck."
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "Where did George tell Lennie to hide if he ever got in trouble?",
+    "ground_truth": "Lennie—if you jus’ happen to get in trouble like you always done before, I want you to come right here an’ hide in the brush."
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What is the final line of dialogue in the book?",
+    "ground_truth": "Now what the hell ya suppose is eatin’ them two guys?"
+  },
+  {
+    "book": "1984",
+    "query": "What are the three slogans of the Party?",
+    "ground_truth": "WAR IS PEACE, FREEDOM IS SLAVERY, IGNORANCE IS STRENGTH"
+  },
+  {
+    "book": "1984",
+    "query": "What is the name of the device in Winston's flat that could be dimmed but not shut off completely?",
+    "ground_truth": "The instrument (the telescreen, it was called) could be dimmed, but there was no way of shutting it off completely."
+  },
+  {
+    "book": "1984",
+    "query": "What was written on the note that the dark-haired girl slipped into Winston's hand?",
+    "ground_truth": "I LOVE YOU."
+  },
+  {
+    "book": "1984",
+    "query": "What is Winston's job at the Ministry of Truth?",
+    "ground_truth": "Winston’s job was to rectify the original figures by making them agree with the later ones. His work involves rewriting historical documents so they align with the Party's current statements."
+  },
+  {
+    "book": "1984",
+    "query": "Where do Winston and Julia rent a room for their secret meetings?",
+    "ground_truth": "Winston looked round the shabby little room above Mr Charrington’s shop."
+  },
+  {
+    "book": "1984",
+    "query": "According to O'Brien, what are the three stages of reintegration in the Ministry of Love?",
+    "ground_truth": "There is learning, there is understanding, and there is acceptance."
+  },
+  {
+    "book": "1984",
+    "query": "What is Winston's ultimate fear, the thing that is in Room 101 for him?",
+    "ground_truth": "In your case,’ said O’Brien, ‘the worst thing in the world happens to be rats."
+  },
+  {
+    "book": "1984",
+    "query": "What does Winston trace in the dust on the table at the Chestnut Tree Cafe in the final chapter?",
+    "ground_truth": "Almost unconsciously he traced with his finger in the dust on the table: 2+2=5"
+  },
+  {
+    "book": "1984",
+    "query": "How does Winston betray Julia?",
+    "ground_truth": "He was shouting frantically, over and over. ‘Do it to Julia! Do it to Julia! Not me! Julia! I don’t care what you do to her. Tear her face off, strip her to the bones. Not me! Julia! Not me!’"
+  },
+  {
+    "book": "1984",
+    "query": "What is the final sentence of the novel?",
+    "ground_truth": "He loved Big Brother."
+  }
+]

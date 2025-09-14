@@ -1,0 +1,411 @@
+[
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What is Ivan Ilych's final realization about his life and death?",
+    "percentage_of_book_read": 40,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "light",
+        "joy",
+        "simple",
+        "rectified",
+        "forgive",
+        "sorry for them",
+        "no more death",
+        "finished"
+      ]
+    }
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "Who is the only person who does not lie to Ivan Ilych and provides him genuine comfort?",
+    "percentage_of_book_read": 40,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "Gerasim",
+        "butler's assistant",
+        "peasant",
+        "holds his legs",
+        "pity",
+        "emaciated master"
+      ]
+    }
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What does the 'black sack' symbolize for Ivan Ilych during his suffering?",
+    "percentage_of_book_read": 60,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "black sack",
+        "hole",
+        "fell through",
+        "thrust",
+        "pushed",
+        "bottom",
+        "light"
+      ]
+    }
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "Does Ivan Ilych ever find peace or an answer to his suffering before he dies?",
+    "percentage_of_book_read": 75,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "peace",
+        "joy",
+        "light",
+        "finished",
+        "rectified",
+        "simple",
+        "no fear"
+      ]
+    }
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What happens in the final moments that allows Ivan Ilych to stop screaming?",
+    "percentage_of_book_read": 80,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "son",
+        "boy's head",
+        "kissing his hand",
+        "caught his hand",
+        "pressed to his lips",
+        "sorry for him"
+      ]
+    }
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What is the 'It' that Ivan Ilych becomes so aware of and cannot escape from?",
+    "percentage_of_book_read": 30,
+    "evaluation_rules": {
+      "forbidden_keywords": ["death", "It", "dying", "end", "abyss"]
+    }
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "How does Ivan Ilych's son react to seeing his father on his deathbed?",
+    "percentage_of_book_read": 80,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "crying",
+        "kissed his hand",
+        "caught it",
+        "pressed it",
+        "sorry for him"
+      ]
+    }
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What question occurs to Ivan Ilych that makes him wonder if his 'whole life has been wrong'?",
+    "percentage_of_book_read": 70,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "Gerasim's face",
+        "not lived as he should",
+        "false",
+        "deception",
+        "all wrong"
+      ]
+    }
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "Does Ivan Ilych forgive his family before he dies?",
+    "percentage_of_book_read": 85,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "sorry for you",
+        "take him away",
+        "wretched",
+        "forgive",
+        "forego"
+      ]
+    }
+  },
+  {
+    "book": "The Death of Ivan Ilych",
+    "query": "What does Ivan Ilych see in place of death at the very end?",
+    "percentage_of_book_read": 85,
+    "evaluation_rules": {
+      "forbidden_keywords": ["light", "joy", "no death", "death is finished"]
+    }
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What tragic event happens in the barn between Lennie and Curley's wife?",
+    "percentage_of_book_read": 70,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "broke her neck",
+        "killed",
+        "dead puppy",
+        "screamed",
+        "shook her",
+        "flopped like a fish"
+      ]
+    }
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "How does George react when he finds out what Lennie did to Curley's wife?",
+    "percentage_of_book_read": 75,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "knew from the first",
+        "never do her",
+        "poor bastard",
+        "lock him up",
+        "ain't gonna let 'em hurt Lennie"
+      ]
+    }
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What happens to Candy's old dog?",
+    "percentage_of_book_read": 25,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "shot",
+        "Carlson",
+        "Luger",
+        "gun",
+        "back of the head",
+        "shovel"
+      ]
+    }
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "How does the story end for Lennie?",
+    "percentage_of_book_read": 80,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "George shot him",
+        "Luger",
+        "gun",
+        "back of the head",
+        "riverbank",
+        "pulled the trigger"
+      ]
+    }
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What is the outcome of the fight between Lennie and Curley?",
+    "percentage_of_book_read": 30,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "crushed his hand",
+        "busted",
+        "flopping like a fish",
+        "caught his fist"
+      ]
+    }
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What does George do after he finds Lennie at their hiding spot by the river?",
+    "percentage_of_book_read": 85,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "tells him about the rabbits",
+        "shoots him",
+        "Luger",
+        "back of the head",
+        "pulled the trigger"
+      ]
+    }
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "Who finds Curley's wife's body?",
+    "percentage_of_book_read": 75,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "Candy",
+        "old Candy",
+        "found her",
+        "Oh, Jesus Christ!"
+      ]
+    }
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "Does Candy ever get to go to the dream farm with George?",
+    "percentage_of_book_read": 80,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "it's all off",
+        "never do her",
+        "lousy tart",
+        "messed things up"
+      ]
+    }
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What does Curley want to do to Lennie after he finds his wife?",
+    "percentage_of_book_read": 75,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "lynched",
+        "shoot 'im in the guts",
+        "get him",
+        "shotgun",
+        "son-of-a-bitch"
+      ]
+    }
+  },
+  {
+    "book": "Of Mice and Men",
+    "query": "What does Lennie hallucinate about while waiting for George by the river?",
+    "percentage_of_book_read": 85,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "Aunt Clara",
+        "gigantic rabbit",
+        "scornfully",
+        "ain't fit",
+        "crazy bastard"
+      ]
+    }
+  },
+  {
+    "book": "1984",
+    "query": "What happens to Winston and Julia in the room above Mr. Charrington's shop?",
+    "percentage_of_book_read": 55,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "iron voice",
+        "telescreen",
+        "behind the picture",
+        "smashed",
+        "paperweight",
+        "captured",
+        "Thought Police"
+      ]
+    }
+  },
+  {
+    "book": "1984",
+    "query": "Is O'Brien truly a member of the Brotherhood fighting against the Party?",
+    "percentage_of_book_read": 60,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "Ministry of Love",
+        "torturer",
+        "interrogator",
+        "dial",
+        "They got me a long time ago",
+        "we shall crush you"
+      ]
+    }
+  },
+  {
+    "book": "1984",
+    "query": "What is in Room 101 for Winston?",
+    "percentage_of_book_read": 80,
+    "evaluation_rules": {
+      "forbidden_keywords": ["rats", "cage", "mask", "worst thing in the world"]
+    }
+  },
+  {
+    "book": "1984",
+    "query": "How does Winston ultimately betray Julia?",
+    "percentage_of_book_read": 85,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "Do it to Julia",
+        "Not me",
+        "Tear her face off",
+        "strip her to the bones"
+      ]
+    }
+  },
+  {
+    "book": "1984",
+    "query": "What are Winston's final feelings towards Big Brother?",
+    "percentage_of_book_read": 90,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "loved Big Brother",
+        "victory over himself",
+        "struggle was finished",
+        "all right"
+      ]
+    }
+  },
+  {
+    "book": "1984",
+    "query": "Who does Mr. Charrington turn out to be?",
+    "percentage_of_book_read": 55,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "Thought Police",
+        "member of the Thought Police",
+        "cockney accent disappeared",
+        "hair turned black"
+      ]
+    }
+  },
+  {
+    "book": "1984",
+    "query": "What does O'Brien use to torture Winston into accepting that two plus two equals five?",
+    "percentage_of_book_read": 65,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "dial",
+        "pain",
+        "fingers",
+        "how many fingers",
+        "four",
+        "five"
+      ]
+    }
+  },
+  {
+    "book": "1984",
+    "query": "Does Winston ever find out if the Brotherhood is real?",
+    "percentage_of_book_read": 75,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "you will never know",
+        "I wrote it",
+        "Goldstein's book",
+        "unsolved riddle"
+      ]
+    }
+  },
+  {
+    "book": "1984",
+    "query": "What happens to the glass paperweight Winston bought?",
+    "percentage_of_book_read": 55,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "smashed",
+        "pieces",
+        "hearth-stone",
+        "fragment of coral"
+      ]
+    }
+  },
+  {
+    "book": "1984",
+    "query": "What does Julia confess to Winston when they meet again after being released?",
+    "percentage_of_book_read": 85,
+    "evaluation_rules": {
+      "forbidden_keywords": [
+        "I betrayed you",
+        "do it to somebody else",
+        "you don't feel the same",
+        "all you care about is yourself"
+      ]
+    }
+  }
+]
