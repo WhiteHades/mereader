@@ -15,3 +15,14 @@ regex
 python-dotenv
 typing_extensions
 rank-bm25
+pandas
+tqdm
+evaluate
+bert-score
+nltk
+numpy
+scipy
+matplotlib
+seaborn
+plotly
+kaleido
