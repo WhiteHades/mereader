@@ -1,0 +1,92 @@
+\documentclass[runningheads]{llncs}
+
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{textcomp}
+\usepackage{float}
+\usepackage{tabularx}
+\usepackage{bm}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{listings}
+\usepackage{minted}
+\usepackage{caption}
+\usepackage[hidelinks]{hyperref}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{seqsplit}
+\usepackage[breaklinks]{hyperref}
+\usepackage[hyphens]{url} 
+\usepackage{xurl}
+
+\lstset{
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  basicstyle=\ttfamily\footnotesize
+}
+
+\captionsetup{compatibility=false}
+\urlstyle{tt}
+\floatname{listing}{Code}
+\usemintedstyle{friendly}
+\newcommand{\ttbreak}[1]{\texttt{\seqsplit{#1}}}
+\setlength{\parskip}{0pt}
+\setlength{\parindent}{1em}
+\setlength{\textfloatsep}{8pt}
+\setlength{\intextsep}{8pt}
+\setlength{\floatsep}{8pt}
+\raggedbottom
+
+\begin{document}
+
+\title{MeReader: An Offline, Privacy-Preserving, Progress-Aware AI Assistant for Narrative eBook Reading}
+\author{Mohammed Efaz\inst{1}\orcidID{0009-0002-3562-7607} \and
+Itilekha Podder\inst{1}\orcidID{0000-0001-7999-5597} \and
+Udo Bub\inst{1}\orcidID{0000-0002-6018-2411}}
+\authorrunning{M. Efaz et al.}
+\institute{Faculty of Informatics, Eötvös Loránd University (ELTE), Budapest, Hungary\\
+\email{efaz@mohammedefaz.com, itilekha19@inf.elte.hu, udobub@inf.elte.hu}}
+\maketitle
+
+\begin{abstract}
+This paper introduces MeReader, a privacy-perserving, offline and progress-aware AI assistant designed to function as a contextual companion for narrative reading on consumer hardware.
+Unlike conventional Large Language Model (LLM)-based systems that process documents/books online in an all-texts-at-once type of way, thereby risking narrative spoilers, MeReader confines both retrieval and generation to the reader's distinct position in the text.
+The system integrates a hybrid retrieval architecture, combining vector similarity, BM25, and summary embeddings, to ensure high fidelity to the reader's current context.
+We evaluate the system across classical English books using both quantitative comprehension metrics and qualitative LLM-based independent judging.
+The results identify a quality-latency frontier, showing that mid-sized local models (2b-4b) can achieve comprehension parity with larger counterparts (5b+) while maintaining acceptable response quality.
+Importantly, the proposed progress-aware boundary mechanism is shown to prevent future content leakage without compromising retrieval quality and correctness.
+These findings suggest that a localized, privacy-centric approach can augment, rather than replace, the digital reading experience, offering a good alternative to cloud-dependent services. 
+Therein, there remains a lack of amalgamate systems which combine progress-aware, privacy-preserving, and narrative eBook reading with AI support.
+It is in this very gap that the development of MeReader came to be; synthesizing said strands into an offline, book-constrained assistant focused on enhancing comprehension
+without compromising narrative continuity or user privacy.
+\keywords{Progress-aware retrieval \and RAG \and On-device LLM \and eBook reader \and Privacy-preserving.}
+\end{abstract}
+
+\section{Introduction}
+\label{sec:introduction}
+\input{chapters/01_intro}
+\section{Related Work}
+\label{sec:related_work}
+\input{chapters/02_Related_Work}
+\section{Proposed System Design}
+\label{sec:system_design}
+\input{chapters/03_System_Design}
+\section{Experimental Setup}
+\label{sec:implement}
+\input{chapters/04_Implementation}
+\section{Results and Discussion}
+\label{sec:evaluation}
+\input{chapters/05_Evaluation}
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+\input{chapters/06_Conclusion}
+
+\bibliographystyle{splncs04}
+\bibliography{references}
+
+\end{document}

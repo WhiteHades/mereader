@@ -1,0 +1,25 @@
+The paper introduced MeReader, an offline, privacy-preserving, and progress-aware reading companion that constrains both retrieval and generation to a reader's current position in the narrative.
+Rather than answering "about the book," it recalls and clarifies without revealing future content or substituting for the act of reading.
+Empirically, across three novels and 600 items (300 comprehension, 300 spoiler checks), we observe a consistent quality-latency frontier (Figure~\ref{fig:eval_speed_quality}); \texttt{gemma3n:e4b} and \texttt{llama3.1:8b} achieve the best balance (Bert F1 $\approx 0.74$ -$0.75$ at $\approx 30$s/item, while \texttt{deepseek-r1:1.5b} offers a low-latency alternative ($\approx 15$-$20$s at slightly lower quality (F1 $\approx 0.69$-$0.70$).
+Precision-recall distributions (Figure~\ref{fig:eval_precision_recall}) place \texttt{gemma3n:e4b} at the upper frontier (P$\approx0.75$, R$\approx0.74$) with \texttt{llama3.1:8b} and \texttt{gemma3:4b} close behind.
+Robustness vs. context availability (Figure~\ref{fig:eval_reading_progress_robustness}) shows stable performance even with $1$-$2$ passages, indicating the system's retrieval pipeline uses evidence that is both compact and sufficient.
+Qualitative judging (Figure~\ref{fig:eval_qualitative_metric}) aligns with its quantitative counterparts; the Pareto-efficient models also lead on coherence, contextual fidelity, and helpfulness, i.e., they \textit{feel} better to use, not just score better.
+
+The central novelty is to treat spoiler prevention as a first-class citizen, not an after-the-fact filter.
+MeReader's progress gates ensure that generation cannot cite beyond what the reader has already read.
+Taken together, the results provide a blueprint for a local, trustworthy reading support on commodity hardware by (1) keeping data and inference on device, (2) incorporating progress metadata into both retrieval and prompting, and (3) targeting frontier-efficient models that deliver strong comprehension at a tolerable latency.
+For readers, this design encourages active engagement (asking, checking, connecting) instead of passive consumption.
+
+Our study spans only three (classic) English novels, ten small/medium models when it comes to consumer hardware, and a single workstation configuration.
+These may not be enough to form a comprehensive conclusion on said models and the system we used, but are enough to recognise patterns and the possible conclusions we can derive.
+The metrics employ BERTScore and an LLM-as-judge, which both carry known biases and do not fully capture long-range discourse reasoning.
+The reference answers used, by \texttt{Gemini 2.5 Pro}, were short and may under-reward creative, but at the same time faithful, paraphrasing.
+Lastly, the spoiler protocol captures explicit future content but not all forms of implicit foreshadowing.
+
+For future work, we see four directions to improve upon. First, scale evaluation by testing more models on a wider set of prompts/questions and a larger, more diverse pool of books spanning languages and genres; a broader dataset will enable stronger conclusions about MeReader’s effectiveness. Second, broaden generality and accessibility by extending support to multilingual texts and non-fiction. Third, conduct user studies to compare MeReader against baselines, measuring learning outcomes, enjoyment, and engagement. Finally, strengthen evaluation methodology by replacing the judge-as-LLM with human audits.
+
+MeReader shows that progress-aware RAG can deliver spoiler-safe, high-quality reading guidance without leaving the device.
+By aligning retrieval, prompting, and evaluation with the reader's position, the system augments, rather than replaces, the act of reading.
+We view this as a practical step towards local AI companions for literary engagement and an invitation to the community to refine the blueprint along whatever axes they see fit.
+
+For reviewing the source code of this project and the data used for analysis, please consult the GitHub repository \href{https://github.com/WhiteHades/mereader}{\path{github.com/WhiteHades/mereader}}~\cite{b30}.

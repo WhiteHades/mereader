@@ -1,0 +1,195 @@
+We evaluated the MeReader architecture described in the previous section to assess its performance across content ingestion, query processing, and retrieval accuracy. The experiments were conducted on the deployed frontend–backend system, with evaluation focusing on component performance and end-to-end user experience.
+
+The storage layer of MeReader employs a two-tier database strategy tailored to heterogeneous data access patterns; SQLite (via SQLAlchemy) for structured metadata and Qdrant for vector embeddings. This setup was benchmarked for scalability with respect to book size, embedding volume, and query throughput. The SQLite schema is normalized for reading applications and uses universally unique identifiers (UUIDs) as primary keys (PK). 
+Foreign keys (FK) maintain referential integrity between entities.
+\noindent Let $book \in \mathsf{Book}$ with attributes (id [PK], metadata, file\_ref, progress\_attr), $progress \in \mathsf{ReadingProgress}$ with attributes (id [PK], book\_id [FK], position, percentage, timestamp), and $chapter \in \mathsf{Chapter}$ with attributes (id [PK], book\_id [FK], order, content\_path, location\_bounds).
+
+\noindent\textbf{Constraints:}
+\begin{enumerate}[leftmargin=*,nosep]
+    \item Each reading progress entry links to exactly one book (1:1):
+    \[
+        \forall progress,\ \exists! book:\ progress.book\_id = book.id
+    \]
+    \item Each chapter links to one book (1:*):
+    \[
+        \forall chapter,\ \exists book:\ chapter.book\_id = book.id
+    \]
+    \item On book deletion, associated reading progress entries and chapters are removed (cascade):
+    \[
+        \text{DELETE Book} \rightarrow \text{DELETE} \{\mathsf{ReadingProgress},\ \mathsf{Chapter}\}
+    \]
+\end{enumerate}
+
+The core \textbf{Book} entity contains bibliographic metadata including publication details and cataloging identifiers, file system references for content and cover resources, and reading-specific attributes for progress calculation.
+The \textbf{ReadingProgress} entity metadata maintains user state through current position tracking, completion percentages, and temporal access records.
+The \textbf{Chapter} entity provides hierarchical content organization with sequential ordering and location boundaries defining chapter extents.
+
+Qdrant provides specialized vector storage with cosine distance similarity for efficient semantic search operations.
+Each book maintains a discrete collection enabling progress-aware filtering, with 768-dimensional vectors tagged by location identifiers for exact retrieval boundary enforcement.
+
+\noindent Let $query\_vector$ be the embedding of the user query text, $filters$ the key--value constraints (e.g., book ID, location boundary), $candidates$ the set of retrieved segments matching the query and filters, $results$ the ordered list of candidates ranked by similarity score, and $top\_k(\cdot)$ the function returning the $k$ highest-scoring results.
+
+\noindent\textbf{Vector Search Process:}
+\begin{enumerate}[leftmargin=*,nosep]
+    \item $query\_vector = embed\_text(user\_query)$
+    \item $filters = \{book\_id: target\_book,\ location \le current\_position\}$
+    \item $candidates = similarity\_search(
+    query\_vector,\ filters,\allowbreak\ threshold)$
+    \item $results = rank\_by\_cosine\_distance(candidates)$
+    \item \textbf{return} $top\_k(results,\ limit)$
+\end{enumerate}
+
+The implementation achieves efficient similarity search while maintaining high recall rates for semantic queries through configurable score thresholds (0.6 for content retrieval, 0.65 for summary retrieval).
+
+The storage architecture demonstrates efficient resource utilization.
+The system processes content using configurable parameters of $400$-character chunks with $100$-character overlap, optimized for semantic coherence.
+It comprises multiple components, including raw text content preservation for original document integrity, $768$-dimensional vector embeddings for semantic similarity search, BM25 inverted indices for keyword-based retrieval, and relational metadata for progress tracking and content organization. 
+This hybrid approach achieves efficient resource usage, enabling scalable personal library management on consumer hardware while maintaining responsive query performance.
+
+The content processing subsystem transforms uploaded EPUB files into searchable, semantically indexed representations while preserving reading progress boundaries essential for spoiler prevention (Algorithm~\ref{alg:semantic-boundary-detection}).
+The implementation employs adaptive text segmentation algorithms that prioritize natural language boundaries over fixed size partitioning.
+
+\noindent Let $F$ be the HTML content file, $chunk\_size = 400$ the target segment length, $overlap = 100$ the overlap between consecutive segments, and $min\_size = 100$ the minimum allowable segment length.
+
+\begin{algorithm}[!t]
+\caption{Semantic Boundary Detection}
+\label{alg:semantic-boundary-detection}
+\begin{algorithmic}[1]
+\Require HTML content file $F$, $chunk\_size$, $overlap$, $min\_size$
+\Ensure Semantically segmented text chunks $C$
+\State $\mathit{text} \leftarrow \Call{ExtractTextFromHTML}{F}$
+\State $\mathit{position} \leftarrow 0$;\quad $\mathit{chunks} \leftarrow [\,]$
+\While{$\mathit{position} < \Call{Length}{\mathit{text}}$}
+    \State $\mathit{buffer} \leftarrow \mathit{text}[\mathit{position} : \mathit{position} + 3 \times chunk\_size]$
+    \State $\mathit{chunk\_end} \leftarrow \min(chunk\_size,\ \Call{Length}{\mathit{buffer}})$
+    \Statex \Comment{Priority 1: paragraph boundaries}
+    \State $\mathit{paragraph\_break} \leftarrow \Call{RFind}{\mathit{buffer},\ ``\backslash n\backslash n'',\ chunk\_size/2,\ chunk\_size+50}$    
+    \If{$\mathit{paragraph\_break} \neq -1 \ \land\ \mathit{paragraph\_break} > chunk\_size/2$}
+        \State $\mathit{chunk\_end} \leftarrow \mathit{paragraph\_break} + 2$
+    \Else
+        \Comment Priority 2: sentence boundaries
+        \State $\mathit{sentence\_break} \leftarrow \Call{RFind}{\mathit{buffer},\ ``.\ '',\ chunk\_size/2,\ chunk\_size+30}$
+        \If{$\mathit{sentence\_break} \neq -1 \ \land\ \mathit{sentence\_break} > chunk\_size/2$}
+            \State $\mathit{chunk\_end} \leftarrow \mathit{sentence\_break} + 2$
+        \EndIf
+    \EndIf
+    \State $\mathit{chunk} \leftarrow \Call{Trim}{\,\mathit{buffer}[0 : \mathit{chunk\_end}]\,}$
+    \If{$\Call{Length}{\mathit{chunk}} \ge min\_size$}
+        \State $\Call{Append}{\mathit{chunks},\ \mathit{chunk}}$
+    \EndIf
+    \State $\mathit{advance} \leftarrow \max\bigl(\mathit{chunk\_end} - overlap/2,\ chunk\_size/2\bigr)$
+    \State $\mathit{position} \leftarrow \mathit{position} + \mathit{advance}$
+    \If{$\mathit{position} \bmod (20 \times chunk\_size) = 0$}
+        \State \Call{GarbageCollect}{}
+    \EndIf
+\EndWhile
+\State \Return $\mathit{chunks}$
+\end{algorithmic}
+\end{algorithm}
+
+The system implements location tracking using character-based calculations. Each location unit represents $1000$ characters, configurable via settings and enabling progress boundaries.
+
+\begin{algorithm}[!t]
+\caption{Progress-Aware Boundary Enforcement}
+\label{alg:progress-aware-boundary}
+\begin{algorithmic}[1]
+\Function{CalculateSafeBoundary}{$current\_pos,\ total\_pos$}
+    \If{$current\_pos \le 0$}
+        \State \Return $1$
+    \ElsIf{$current\_pos > total\_pos$}
+        \State \Return $total\_pos$
+    \Else
+        \State \Return $current\_pos$
+    \EndIf
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+As shown in Algorithm~\ref{alg:progress-aware-boundary}, the system calculates safe reading boundaries to prevent spoilers by ensuring users only access content they have already read.  
+The boundary calculation function handles edge cases where users might be at the beginning or end of a book, ensuring valid location ranges for content filtering.
+
+\noindent Completion percentage is computed as:
+\[
+    progress\_ratio \gets \min\!\bigl(100,\ \max(0,\ \frac{current\_position}{total\_positions} \times 100)\bigr)
+\]
+
+
+\begin{sloppypar}
+Spoiler prevention is implemented via Qdrant filtering, e.g.
+{\urlstyle{tt}\nolinkurl{filter_conditions.append(FieldCondition(key="location", range=Range(lte=boundary)))}},
+which restricts results to content within the user’s current reading progress.
+\end{sloppypar}
+
+The system appends location based filters during vector searches, restricting results to current progress.
+The embedding pipeline processes maximum $120$ chunks per batch with garbage collection every 20 chunks, generating summaries at $11$ location intervals.
+The RAG architecture employs searches combining vector similarity, keyword matching, query expansion, and progress boundaries, using sequential execution with score normalization and fusion (Algorithm~\ref{alg:multi-modal-retrieval}).
+Alternative queries from local LLMs complement retrieval (lines $20$–$26$), with the \texttt{DeduplicateAndRank} function removing semantically redundant results and orders the remaining items by their aggregated relevance score (line $28$).
+Results exceeding eight items where queries contain more than three terms undergo LLM-based reranking on a ten point scale.
+
+\begin{algorithm}[!t]
+\caption{Multi-Modal Retrieval with Progress Filtering}
+\label{alg:multi-modal-retrieval}
+\begin{algorithmic}[1]
+\Require Query $q$, book ID $B$, current location $L$, total locations $T$
+\Ensure Ranked context passages $R$
+\State $location\_boundary \gets \Call{CalculateBoundary}{L,\ T}$
+\State $query\_embedding \gets \Call{EmbedText}{q}$
+\State $expanded\_queries \gets$
+\Statex \hspace{\algorithmicindent}\Call{GenerateAlternatives}{q,\ book\_title}
+\State $results \gets [\,]$
+\Statex
+\Comment{Vector search (limit = 15, threshold = 0.6)}
+\State $vector\_results \gets \Call{QdrantSearch}{query\_embedding,\ B,\allowbreak 15,\ 0.6,\ location\_boundary}$
+\ForAll{$result \in vector\_results$}
+    \State $result.method \gets$ ``vector''
+\EndFor
+\State $\Call{Extend}{results,\ vector\_results}$
+\Statex
+\Comment{BM25 keyword search (limit = 10)}
+\State $bm25\_results \gets$
+\Statex \hspace{\algorithmicindent}\Call{BM25Search}{q,\ B,\ 10,\ location\_boundary}
+\ForAll{$result \in bm25\_results$}
+    \State $result.method \gets$ ``bm25''
+\EndFor
+\State $\Call{Extend}{results,\ bm25\_results}$
+\Statex
+\Comment{Summary search (limit = 5, threshold = 0.65)}
+\State $summary\_results \gets$
+\Statex \hspace{\algorithmicindent}\Call{QdrantSearch}{query\_embedding,\ B,\ 5,\ 0.65,\ location\_boundary,\ ``summary''}
+\ForAll{$result \in summary\_results$}
+    \State $result.method \gets$ ``summary''
+\EndFor
+\State $\Call{Extend}{results,\ summary\_results}$
+\Statex
+\Comment{Expanded query search}
+\ForAll{$expanded\_q \in expanded\_queries$}
+    \State $expanded\_embedding \gets \Call{EmbedText}{expanded\_q}$
+    \State $expanded\_results \gets$
+    \Statex \hspace{\algorithmicindent}\Call{QdrantSearch}{expanded\_embedding,\ B,\ 5,\ 0.5,\allowbreak location\_boundary}
+    \ForAll{$result \in expanded\_results$}
+        \State $result.method \gets$ ``expanded\_vector''
+    \EndFor
+    \State $\Call{Extend}{results,\ expanded\_results}$
+\EndFor
+\State \Return $\Call{DeduplicateAndRank}{results}$
+\end{algorithmic}
+\end{algorithm}
+
+The system applies method specific weights \(w_{\text{bm25}} = 0.40\),
+\(w_{\text{vector}} = 0.60\),
+\(w_{\text{summary}} = 0.40\),
+and \(w_{\text{expanded}} = 0.70\).
+These weights are applied after per-method score normalization to balance the contribution of keyword matching, semantic similarity, summary retrieval, and query expansion under a single ranking signal.
+Each method’s raw scores are normalized by its maximum observed score for the current query, and the resulting normalized scores are then scaled by the corresponding \(w_{\text{method}}\) before being merged into a combined pool.
+
+The final ranking is produced by sorting the merged candidates by their weighted normalized score, followed by the deduplication pass.
+In this last step, \ttbreak{DeduplicateByContentSimilarity} removes semantically redundant passages whose overlap exceeds a predefined threshold, ensuring that only distinct context segments are retained while preserving the highest-scoring representative.
+
+For model integration, MeReader leverages local language models via Ollama to enable privacy-preserving and offline operation.
+Communication occurs through asynchronous HTTP API requests (default endpoint: \texttt{localhost:11434}), with configurable support for different model architectures.
+The completion API exposes standard parameters such as temperature (default $0.7$), maximum tokens, and streaming options, while the embedding API uses \texttt{nomic-embed-text} to generate $768$-dimensional vectors with batched execution.
+
+% In the book processing pipeline, EPUB files are parsed with \texttt{ebooklib}, and HTML content is extracted using \texttt{BeautifulSoup}.
+% Reading order is preserved through spine traversal, while table-of-contents structures define chapter boundaries.
+% Chapter entities maintain sequential ordering, references, and location boundaries.
+% Content cleaning removes non-essential navigation elements (e.g., \texttt{script}, \texttt{style}, \texttt{meta}, \texttt{link}, and \texttt{head} tags), followed by white space normalization and elimination of residual XML/HTML artifacts to ensure consistent text structure.
