@@ -1,3 +1,0 @@
-"""
-MeReader models package
-"""

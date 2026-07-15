@@ -1264,6 +1264,86 @@ mod tests {
         writer.finish().unwrap();
     }
 
+    fn write_test_epub(path: &Path) {
+        let file = File::create(path).unwrap();
+        let mut writer = ZipWriter::new(file);
+        writer
+            .start_file(
+                "mimetype",
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+            )
+            .unwrap();
+        writer.write_all(b"application/epub+zip").unwrap();
+
+        let compressed =
+            SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        writer
+            .start_file("META-INF/container.xml", compressed)
+            .unwrap();
+        writer
+            .write_all(
+                br#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#,
+            )
+            .unwrap();
+        writer.start_file("OEBPS/content.opf", compressed).unwrap();
+        writer
+            .write_all(
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<package version="3.0" unique-identifier="book-id" xmlns="http://www.idpf.org/2007/opf">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="book-id">fixture-book</dc:identifier>
+    <dc:title>Fixture Book</dc:title>
+    <dc:creator>Test Author</dc:creator>
+    <dc:language>en</dc:language>
+    <meta property="dcterms:modified">2026-07-15T00:00:00Z</meta>
+  </metadata>
+  <manifest>
+    <item id="navigation" href="navigation.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="chapter"/>
+  </spine>
+</package>"#,
+            )
+            .unwrap();
+        writer
+            .start_file("OEBPS/navigation.xhtml", compressed)
+            .unwrap();
+        writer
+            .write_all(
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+  <head><title>Contents</title></head>
+  <body>
+    <nav epub:type="toc" id="toc">
+      <h1>Contents</h1>
+      <ol><li><a href="chapter.xhtml">Opening</a></li></ol>
+    </nav>
+  </body>
+</html>"#,
+            )
+            .unwrap();
+        writer
+            .start_file("OEBPS/chapter.xhtml", compressed)
+            .unwrap();
+        writer
+            .write_all(
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head><title>Opening</title></head>
+  <body><h1>Opening</h1><p>A complete EPUB fixture for the Rust importer.</p></body>
+</html>"#,
+            )
+            .unwrap();
+        writer.finish().unwrap();
+    }
+
     #[test]
     fn validates_path_extension_and_zip_preflight() {
         let epub_path = temp_path("valid.epub");
@@ -1592,6 +1672,37 @@ mod tests {
                 .count(),
             0
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn imports_generated_epub_end_to_end() {
+        let root = temp_path("fixture-root");
+        let root = storage::initialize(&root).unwrap();
+        let fixture = root.join("fixture.epub");
+        write_test_epub(&fixture);
+        let staged = stage_epub(&root, &fixture).unwrap();
+        let prepared = parse_staged_epub(&root, staged).unwrap();
+        let published = publish_import(&root, prepared).unwrap();
+        let mut connection = Connection::open_in_memory().unwrap();
+        crate::db::configure_connection(&connection).unwrap();
+        crate::db::migrations().to_latest(&mut connection).unwrap();
+
+        let summary = persist_published(&mut connection, &published).unwrap();
+        commit_published(published);
+        let detail = crate::db::get_book(&connection, &summary.id).unwrap();
+
+        assert_eq!(detail.title, "Fixture Book");
+        assert_eq!(detail.author.as_deref(), Some("Test Author"));
+        assert_eq!(detail.chapters.len(), 1);
+        assert!(detail.total_locations > 0);
+        let first_chapter = detail.chapters.first().unwrap();
+        assert_eq!(first_chapter.title, "Opening");
+        let chapter_path = storage::chapter_path(&root, &detail.id, &first_chapter.id).unwrap();
+        assert!(fs::read_to_string(chapter_path)
+            .unwrap()
+            .contains("complete EPUB fixture"));
+
         fs::remove_dir_all(root).unwrap();
     }
 }

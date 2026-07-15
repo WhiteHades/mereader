@@ -1,3 +1,0 @@
-"""
-MeReader services package
-"""

@@ -1,57 +1,4 @@
-# Backend Python files
-backend/**/__pycache__/
-backend/**/*.py[cod]
-backend/**/*$py.class
-backend/**/*.so
-backend/.Python
-backend/build/
-backend/develop-eggs/
-backend/dist/
-backend/downloads/
-backend/eggs/
-backend/.eggs/
-backend/lib/
-backend/lib64/
-backend/parts/
-backend/sdist/
-backend/var/
-backend/wheels/
-backend/**/*.egg-info/
-backend/.installed.cfg
-backend/**/*.egg
-backend/MANIFEST
-
-# Backend virtual environments
-backend/venv/
-backend/env/
-backend/ENV/
-backend/env.bak/
-backend/venv.bak/
-backend/.venv/
-
-# Backend testing and coverage
-backend/.pytest_cache/
-backend/.coverage
-backend/htmlcov/
-backend/.mypy_cache/
-backend/.dmypy.json
-backend/dmypy.json
-
-# Backend data directories and user content
-backend/data/
-backend/evaluation_results/
-backend/tests/data/
-
-# Backend cache and database files
-backend/**/*.pkl
-backend/**/*.cache
-backend/**/*.db
-backend/**/*.db-shm
-backend/**/*.db-wal
-backend/**/*.sqlite
-backend/**/*.sqlite3
-
-# Frontend Node.js files
+# Node.js files
 frontend/node_modules/
 frontend/npm-debug.log*
 frontend/yarn-debug.log*
@@ -87,10 +34,9 @@ frontend/*.lcov
 frontend/.nyc_output
 frontend/jspm_packages/
 frontend/*.local
-frontend/src-tauri/WixTools 
+frontend/src-tauri/WixTools
 
 # Environment files
-backend/.env*
 frontend/.env*
 
 # IDE files
@@ -130,3 +76,7 @@ EPUB_IMPROVEMENT_PLAN.md
 
 # Paper source is maintained outside this repository; keep only exported PDFs.
 /MeReader_ICCCI2026/
+*.tex
+*.bib
+*.bst
+*.cls

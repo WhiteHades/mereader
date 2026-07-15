@@ -1,3 +1,0 @@
-"""
-MeReader API routes package
-"""
