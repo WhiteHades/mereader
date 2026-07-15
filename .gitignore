@@ -64,7 +64,7 @@ frontend/.vite/
 
 # Frontend Tauri
 frontend/src-tauri/target/
-frontend/src-tauri/Cargo.lock
+frontend/src-tauri/gen/schemas/
 
 # Frontend build and cache
 frontend/.parcel-cache
@@ -127,3 +127,6 @@ tmp/
 temp/
 
 EPUB_IMPROVEMENT_PLAN.md
+
+# Paper source is maintained outside this repository; keep only exported PDFs.
+/MeReader_ICCCI2026/
