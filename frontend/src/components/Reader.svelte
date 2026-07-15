@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { errorMessage, getBook, updateProgress } from '../lib/commands';
   import { chapterContainsLocation, findChapterAtLocation } from '../lib/chapters';
   import { ProgressSaveQueue } from '../lib/progress';
@@ -8,6 +8,7 @@
     ChapterSummary,
     ReaderSettings,
     ReaderTheme,
+    ProgressPosition,
     SourcePassage,
   } from '../lib/types';
   import AiPanel from './AiPanel.svelte';
@@ -25,6 +26,7 @@
     nextChapter: () => Promise<void>;
     previousViewport: () => Promise<void>;
     nextViewport: () => Promise<void>;
+    focusContent: () => void;
   }
 
   interface AiPanelApi {
@@ -32,6 +34,7 @@
   }
 
   const SETTINGS_KEY = 'mereader.reader-settings.v1';
+  const SAVE_DEBOUNCE_MS = 160;
   const defaultSettings: ReaderSettings = {
     theme: 'sepia',
     fontSize: 19,
@@ -45,8 +48,8 @@
   let loadError = $state('');
   let saveError = $state('');
   let leaving = $state(false);
-  let initialLocation = $state(1);
-  let currentLocation = $state(1);
+  let initialLocation = $state(0);
+  let currentLocation = $state(0);
   let currentChapter = $state<ChapterSummary | null>(null);
   let tocOpen = $state(false);
   let aiOpen = $state(false);
@@ -54,6 +57,16 @@
   let settings = $state<ReaderSettings>(loadSettings());
   let readerContent = $state<ReaderContentApi>();
   let aiPanel = $state<AiPanelApi>();
+  let tocTrigger = $state<HTMLButtonElement>();
+  let aiTrigger = $state<HTMLButtonElement>();
+  let settingsTrigger = $state<HTMLButtonElement>();
+  let tocPanel = $state<HTMLElement>();
+  let settingsPanel = $state<HTMLElement>();
+  let isNarrow = $state(false);
+  let lastOpenedPanel: 'toc' | 'ai' | 'settings' | null = null;
+  let pendingPosition: ProgressPosition | null = null;
+  let lastQueuedPosition: ProgressPosition | null = null;
+  let saveTimer = 0;
 
   let completion = $derived(
     detail?.totalLocations
@@ -83,6 +96,20 @@
     void loadBook();
   });
 
+  onMount(() => {
+    const media = window.matchMedia('(max-width: 780px)');
+    const updateViewport = (): void => {
+      isNarrow = media.matches;
+    };
+    updateViewport();
+    media.addEventListener('change', updateViewport);
+    return () => media.removeEventListener('change', updateViewport);
+  });
+
+  onDestroy(() => {
+    window.clearTimeout(saveTimer);
+  });
+
   async function loadBook(): Promise<void> {
     loading = true;
     loadError = '';
@@ -90,7 +117,7 @@
       const loaded = await getBook(bookId);
       loaded.chapters = [...loaded.chapters].sort((left, right) => left.order - right.order);
       detail = loaded;
-      initialLocation = loaded.progress?.currentLocation ?? loaded.chapters[0]?.startLocation ?? 1;
+      initialLocation = loaded.progress?.currentLocation ?? loaded.chapters[0]?.startLocation ?? 0;
       currentLocation = initialLocation;
       currentChapter =
         loaded.chapters.find(
@@ -109,16 +136,50 @@
 
   function positionChanged(position: { location: number; chapterId: string }): void {
     currentLocation = position.location;
-    saveQueue.enqueue({
+    const nextPosition = {
       bookId,
       currentLocation: position.location,
       currentChapterId: position.chapterId,
-    });
+    };
+    if (samePosition(pendingPosition, nextPosition)) return;
+    if (samePosition(lastQueuedPosition, nextPosition)) {
+      pendingPosition = null;
+      window.clearTimeout(saveTimer);
+      saveTimer = 0;
+      return;
+    }
+    pendingPosition = nextPosition;
+    if (leaving) {
+      commitPendingPosition();
+      return;
+    }
+    window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(commitPendingPosition, SAVE_DEBOUNCE_MS);
+  }
+
+  function commitPendingPosition(): void {
+    window.clearTimeout(saveTimer);
+    saveTimer = 0;
+    if (!pendingPosition) return;
+    const position = pendingPosition;
+    pendingPosition = null;
+    lastQueuedPosition = position;
+    saveQueue.enqueue(position);
+  }
+
+  function samePosition(
+    left: ProgressPosition | null,
+    right: ProgressPosition,
+  ): boolean {
+    return left?.bookId === right.bookId &&
+      left.currentLocation === right.currentLocation &&
+      left.currentChapterId === right.currentChapterId;
   }
 
   async function handleBack(): Promise<void> {
     leaving = true;
     try {
+      commitPendingPosition();
       await saveQueue.flush();
       onBack();
     } catch {
@@ -130,6 +191,7 @@
 
   async function retrySave(): Promise<void> {
     try {
+      commitPendingPosition();
       await saveQueue.flush();
     } catch {
       // The queue reports the concrete core error through saveError.
@@ -137,39 +199,101 @@
   }
 
   async function openToc(): Promise<void> {
-    tocOpen = !tocOpen;
-    if (tocOpen && narrowViewport()) aiOpen = false;
+    if (tocOpen) {
+      await closeToc();
+      return;
+    }
+    tocOpen = true;
+    lastOpenedPanel = 'toc';
+    if (isNarrow) {
+      aiOpen = false;
+      settingsOpen = false;
+    }
+    await tick();
+    tocPanel?.focus();
   }
 
   async function openAi(): Promise<void> {
-    aiOpen = !aiOpen;
-    if (aiOpen && narrowViewport()) tocOpen = false;
     if (aiOpen) {
-      await tick();
-      aiPanel?.focusPanel();
+      await closeAi();
+      return;
     }
+    aiOpen = true;
+    lastOpenedPanel = 'ai';
+    if (isNarrow) {
+      tocOpen = false;
+      settingsOpen = false;
+    }
+    await tick();
+    aiPanel?.focusPanel();
+  }
+
+  async function openSettings(): Promise<void> {
+    if (settingsOpen) {
+      await closeSettings();
+      return;
+    }
+    settingsOpen = true;
+    lastOpenedPanel = 'settings';
+    if (isNarrow) {
+      tocOpen = false;
+      aiOpen = false;
+    }
+    await tick();
+    settingsPanel?.focus();
+  }
+
+  async function closeToc(restoreFocus = true): Promise<void> {
+    tocOpen = false;
+    if (lastOpenedPanel === 'toc') lastOpenedPanel = null;
+    await tick();
+    if (restoreFocus) tocTrigger?.focus();
+  }
+
+  async function closeAi(restoreFocus = true): Promise<void> {
+    aiOpen = false;
+    if (lastOpenedPanel === 'ai') lastOpenedPanel = null;
+    await tick();
+    if (restoreFocus) aiTrigger?.focus();
+  }
+
+  async function closeSettings(restoreFocus = true): Promise<void> {
+    settingsOpen = false;
+    if (lastOpenedPanel === 'settings') lastOpenedPanel = null;
+    await tick();
+    if (restoreFocus) settingsTrigger?.focus();
   }
 
   async function selectChapter(chapter: ChapterSummary): Promise<void> {
     await readerContent?.goToChapter(chapter.id);
     currentChapter = chapter;
-    tocOpen = false;
+    await closeToc(false);
+    readerContent?.focusContent();
   }
 
   async function jumpToSource(source: SourcePassage): Promise<void> {
     if (source.startLocation === undefined) return;
     await readerContent?.goToLocation(source.startLocation);
-    aiOpen = false;
+    await closeAi(false);
+    readerContent?.focusContent();
   }
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Escape') return;
-    if (aiOpen || tocOpen || settingsOpen) {
-      event.preventDefault();
-      aiOpen = false;
-      tocOpen = false;
-      settingsOpen = false;
-    }
+    const panel = lastOpenedPanel && panelIsOpen(lastOpenedPanel)
+      ? lastOpenedPanel
+      : settingsOpen
+        ? 'settings'
+        : aiOpen
+          ? 'ai'
+          : tocOpen
+            ? 'toc'
+            : null;
+    if (!panel) return;
+    event.preventDefault();
+    if (panel === 'settings') void closeSettings();
+    if (panel === 'ai') void closeAi();
+    if (panel === 'toc') void closeToc();
   }
 
   function updateSetting<Key extends keyof ReaderSettings>(
@@ -202,8 +326,8 @@
       : fallback;
   }
 
-  function narrowViewport(): boolean {
-    return window.matchMedia('(max-width: 780px)').matches;
+  function panelIsOpen(panel: 'toc' | 'ai' | 'settings'): boolean {
+    return panel === 'toc' ? tocOpen : panel === 'ai' ? aiOpen : settingsOpen;
   }
 </script>
 
@@ -235,9 +359,9 @@
         <span>{currentChapter?.title ?? 'Reading'}</span>
       </div>
       <div class="reader-actions">
-        <button class="button quiet" onclick={openToc} aria-expanded={tocOpen} aria-controls="toc-drawer">Contents</button>
-        <button class="button quiet" onclick={openAi} aria-expanded={aiOpen} aria-controls="ai-drawer">Ask AI</button>
-        <button class="button quiet" onclick={() => (settingsOpen = !settingsOpen)} aria-expanded={settingsOpen} aria-controls="reader-settings">Text</button>
+        <button bind:this={tocTrigger} class="button quiet" onclick={openToc} aria-expanded={tocOpen} aria-controls="toc-drawer">Contents</button>
+        <button bind:this={aiTrigger} class="button quiet" onclick={openAi} aria-expanded={aiOpen} aria-controls="ai-panel">Ask AI</button>
+        <button bind:this={settingsTrigger} class="button quiet" onclick={openSettings} aria-expanded={settingsOpen} aria-controls="reader-settings">Text</button>
       </div>
     </header>
 
@@ -253,48 +377,69 @@
       bookId={detail.id}
       chapters={detail.chapters}
       {initialLocation}
+      initialChapterId={currentChapter?.id ?? null}
       {settings}
       onPositionChange={positionChanged}
       onChapterChange={(chapter) => (currentChapter = chapter)}
     />
 
-    <aside id="toc-drawer" class:drawer-open={tocOpen} class="drawer toc-drawer" hidden={!tocOpen} aria-hidden={!tocOpen}>
+    <div
+      id="toc-drawer"
+      class:drawer-open={tocOpen}
+      class="drawer toc-drawer"
+      role="dialog"
+      aria-labelledby="toc-panel-title"
+      aria-modal={isNarrow ? 'true' : undefined}
+      hidden={!tocOpen}
+      aria-hidden={!tocOpen}
+      inert={!tocOpen}
+      tabindex="-1"
+      bind:this={tocPanel}
+    >
       <header class="drawer-header">
         <div>
           <p class="eyebrow">{detail.chapters.length} chapters</p>
-          <h2>Contents</h2>
+          <h2 id="toc-panel-title">Contents</h2>
         </div>
-        <button class="icon-button" onclick={() => (tocOpen = false)} aria-label="Close contents panel">Close</button>
+        <button class="icon-button" onclick={() => void closeToc()} aria-label="Close contents panel">Close</button>
       </header>
       <nav aria-label="Table of contents">
         <ol class="toc-list">
-          {#each detail.chapters as chapter}
+          {#each detail.chapters as chapter, index}
             <li>
               <button class:active={chapter.id === currentChapter?.id} onclick={() => selectChapter(chapter)}>
-                <span>{String(chapter.order).padStart(2, '0')}</span>
+                <span>{String(index + 1).padStart(2, '0')}</span>
                 <strong>{chapter.title}</strong>
               </button>
             </li>
           {/each}
         </ol>
       </nav>
-    </aside>
+    </div>
 
-    <div id="ai-drawer">
+    <div>
       <AiPanel
         bind:this={aiPanel}
         bookId={detail.id}
         open={aiOpen}
-        onClose={() => (aiOpen = false)}
+        modal={isNarrow}
+        onClose={() => void closeAi()}
         onJumpToSource={jumpToSource}
       />
     </div>
 
     {#if settingsOpen}
-      <section class="settings-popover" id="reader-settings" aria-label="Reader settings">
+      <div
+        class="settings-popover"
+        id="reader-settings"
+        role="dialog"
+        aria-labelledby="reader-settings-title"
+        tabindex="-1"
+        bind:this={settingsPanel}
+      >
         <header>
-          <strong>Reading settings</strong>
-          <button class="icon-button" onclick={() => (settingsOpen = false)} aria-label="Close reading settings">Close</button>
+          <strong id="reader-settings-title">Reading settings</strong>
+          <button class="icon-button" onclick={() => void closeSettings()} aria-label="Close reading settings">Close</button>
         </header>
         <label>
           <span>Theme</span>
@@ -316,8 +461,7 @@
           <span>Reading width <output>{settings.readingWidth}px</output></span>
           <input type="range" min="520" max="920" step="20" value={settings.readingWidth} oninput={(event) => updateSetting('readingWidth', Number(event.currentTarget.value))} />
         </label>
-        <p class="position-note">Position uses the core's stable chapter location range. Exact DOM anchors or EPUB CFI require a future resolver contract.</p>
-      </section>
+      </div>
     {/if}
 
     <footer class="reader-controls" aria-label="Reading navigation">

@@ -1,0 +1,15 @@
+pub const MAX_LIBRARY_BOOKS: usize = 10_000;
+pub const MAX_COMPRESSED_BYTES: u64 = 100 * 1024 * 1024;
+pub const MAX_EXPANDED_BYTES: u64 = 500 * 1024 * 1024;
+pub const MAX_ENTRY_BYTES: u64 = 100 * 1024 * 1024;
+pub const MAX_ARCHIVE_ENTRIES: usize = 10_000;
+pub const MAX_COMPRESSION_RATIO: u64 = 100;
+pub const MAX_SPINE_CHAPTERS: usize = 500;
+pub const MAX_ASSETS: usize = 2_000;
+pub const MAX_NORMALIZED_TEXT_CHARS: usize = 20_000_000;
+pub const MAX_CHUNKS_PER_BOOK: usize = 70_000;
+pub const MAX_GENERATED_BYTES: u64 = 600 * 1024 * 1024;
+pub const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+pub const MAX_IMAGE_DIMENSION: u32 = 16_384;
+pub const MAX_IMAGE_PIXELS: u64 = 40_000_000;
+pub const MAX_VECTOR_DIMENSION: usize = 4_096;

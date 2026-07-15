@@ -1,16 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { askBook, errorMessage, getAiStatus } from '../lib/commands';
+  import { askBook, errorMessage, getAiStatus, reindexBook } from '../lib/commands';
   import type { AiEvent, AiStatus, AnswerResponse, SourcePassage } from '../lib/types';
 
   interface Props {
     bookId: string;
     open: boolean;
+    modal?: boolean;
     onClose: () => void;
     onJumpToSource: (source: SourcePassage) => void;
   }
 
-  let { bookId, open, onClose, onJumpToSource }: Props = $props();
+  let { bookId, open, modal = false, onClose, onJumpToSource }: Props = $props();
 
   let panel = $state<HTMLElement>();
   let questionInput = $state<HTMLTextAreaElement>();
@@ -25,20 +26,36 @@
   let queryError = $state('');
   let asking = $state(false);
   let sourcesOpen = $state(true);
+  let reindexing = $state(false);
+  let reindexError = $state('');
+
+  let canAsk = $derived(status !== null && status.state !== 'unavailable');
+  let canReindex = $derived(
+    status !== null &&
+      status.state !== 'unavailable' &&
+      status.state !== 'indexing' &&
+      (
+        status.state === 'error' ||
+        status.embeddingModelAvailable === false ||
+        (status.textOnlyBooks ?? 0) > 0
+      ),
+  );
+  let answerSegments = $derived(answer ? parseAnswer(answer) : []);
 
   onMount(() => {
     void refreshStatus();
   });
 
   export function focusPanel(): void {
-    questionInput?.focus();
+    if (questionInput) questionInput.focus();
+    else panel?.focus();
   }
 
   async function refreshStatus(): Promise<void> {
     statusLoading = true;
     statusError = '';
     try {
-      status = await getAiStatus();
+      status = await getAiStatus(bookId);
     } catch (error) {
       statusError = errorMessage(error);
     } finally {
@@ -49,7 +66,7 @@
   async function submit(event?: SubmitEvent): Promise<void> {
     event?.preventDefault();
     const nextQuestion = question.trim();
-    if (!nextQuestion || asking || status?.state !== 'ready') return;
+    if (!nextQuestion || asking || !canAsk) return;
 
     previousQuestion = nextQuestion;
     streamDraft = '';
@@ -98,6 +115,58 @@
     void submit();
   }
 
+  async function reindex(): Promise<void> {
+    reindexing = true;
+    reindexError = '';
+    try {
+      status = await reindexBook(bookId);
+      await refreshStatus();
+    } catch (error) {
+      reindexError = errorMessage(error);
+    } finally {
+      reindexing = false;
+    }
+  }
+
+  type AnswerSegment =
+    | { type: 'text'; text: string }
+    | { type: 'citation'; text: string; source: SourcePassage };
+
+  function parseAnswer(response: AnswerResponse): AnswerSegment[] {
+    const sources = new Map(response.sources.map((source) => [source.citationId, source]));
+    const segments: AnswerSegment[] = [];
+    const markerPattern = /\[S\d+\]/g;
+    let textStart = 0;
+
+    for (const match of response.answer.matchAll(markerPattern)) {
+      const markerStart = match.index;
+      if (markerStart > textStart) {
+        segments.push({ type: 'text', text: response.answer.slice(textStart, markerStart) });
+      }
+      const marker = match[0];
+      const source = sources.get(marker.slice(1, -1));
+      segments.push(source
+        ? { type: 'citation', text: marker, source }
+        : { type: 'text', text: marker });
+      textStart = markerStart + marker.length;
+    }
+    if (textStart < response.answer.length) {
+      segments.push({ type: 'text', text: response.answer.slice(textStart) });
+    }
+    return segments;
+  }
+
+  function retrievalLabel(source: SourcePassage, rank: number): string {
+    const methods = source.retrievalMethods.map((method) =>
+      method === 'vector'
+        ? 'Vector'
+        : method === 'keyword'
+          ? 'Keyword'
+          : `${method.slice(0, 1).toLocaleUpperCase()}${method.slice(1)}`
+    );
+    return `Rank ${rank} / ${methods.join(' + ') || 'Grounded retrieval'}`;
+  }
+
   function boundaryLabel(response: AnswerResponse): string {
     const boundary = response.progressBoundary;
     if (!boundary) return 'The core did not report an indexing boundary.';
@@ -105,18 +174,23 @@
   }
 </script>
 
-<aside
+<div
+  id="ai-panel"
   class:drawer-open={open}
   class="drawer ai-drawer"
-  aria-label="Ask MeReader"
+  role="dialog"
+  aria-labelledby="ai-panel-title"
+  aria-modal={modal ? 'true' : undefined}
   aria-hidden={!open}
   hidden={!open}
+  inert={!open}
+  tabindex="-1"
   bind:this={panel}
 >
   <header class="drawer-header">
     <div>
       <p class="eyebrow">Local book assistant</p>
-      <h2>Ask MeReader</h2>
+      <h2 id="ai-panel-title">Ask MeReader</h2>
     </div>
     <button class="icon-button" onclick={onClose} aria-label="Close AI panel">Close</button>
   </header>
@@ -143,8 +217,8 @@
     {:else if status?.state === 'indexing'}
       <div class="compact-state" role="status">
         <span class="activity-dot" aria-hidden="true"></span>
-        <strong>Indexing this library</strong>
-        <span>{status.message || 'Questions will be available when grounded passages are ready.'}</span>
+        <strong>Indexing this book</strong>
+        <span>{status.message || 'Keyword grounding remains available while semantic passages are prepared.'}</span>
         {#if status.indexedThroughLocation !== undefined}
           <span>Indexed through location {status.indexedThroughLocation}{status.totalLocations ? ` of ${status.totalLocations}` : ''}.</span>
         {/if}
@@ -152,11 +226,34 @@
       </div>
     {:else if status?.state === 'error'}
       <div class="compact-state error-notice" role="alert">
-        <strong>The AI core reported an error</strong>
-        <span>{status.message || 'No additional detail was provided.'}</span>
+        <strong>Semantic indexing needs attention</strong>
+        <span>{status.message || 'Keyword grounding remains available. Reindex to retry semantic search.'}</span>
         <button class="button quiet" onclick={refreshStatus}>Retry status check</button>
       </div>
-    {:else}
+    {:else if status?.message}
+      <div class="compact-state" role="status">
+        <strong>Keyword grounding is ready</strong>
+        <span>{status.message}</span>
+      </div>
+    {/if}
+
+    {#if canReindex}
+      <div class="reindex-action">
+        <button class="button quiet" onclick={reindex} disabled={reindexing}>
+          {reindexing ? 'Reindexing...' : 'Reindex book'}
+        </button>
+        <span>Retry semantic indexing for this book.</span>
+      </div>
+    {/if}
+
+    {#if reindexError}
+      <div class="compact-state error-notice" role="alert">
+        <strong>Reindex failed</strong>
+        <span>{reindexError}</span>
+      </div>
+    {/if}
+
+    {#if canAsk}
       <form class="ask-form" onsubmit={submit}>
         <label for="book-question">Question about this book</label>
         <textarea
@@ -197,7 +294,18 @@
 
     {#if answer}
       <section class="answer" aria-label="AI answer">
-        <p class="answer-copy">{answer.answer}</p>
+        <p class="answer-copy">
+          {#each answerSegments as segment, index (`${segment.type}-${index}`)}
+            {#if segment.type === 'citation'}
+              <button
+                class="citation-button"
+                type="button"
+                aria-label={`Jump to source ${segment.source.citationId}`}
+                onclick={() => onJumpToSource(segment.source)}
+              >{segment.text}</button>
+            {:else}{segment.text}{/if}
+          {/each}
+        </p>
         <p class="grounding-boundary">{boundaryLabel(answer)}</p>
 
         <button
@@ -212,18 +320,19 @@
 
         {#if sourcesOpen}
           <ol class="source-list" id="answer-sources">
-            {#each answer.sources as source, index (`${source.chapterId}-${source.startLocation ?? index}`)}
+            {#each answer.sources as source, index (source.citationId)}
               <li>
                 <div class="source-heading">
-                  <strong>{source.chapterTitle}</strong>
-                  {#if source.relevanceScore !== undefined}
-                    <span>{Math.round(source.relevanceScore * 100)}% match</span>
-                  {/if}
+                  <div>
+                    <span class="source-citation">{source.citationId}</span>
+                    <strong>{source.chapterTitle}</strong>
+                  </div>
+                  <span>{retrievalLabel(source, index + 1)}</span>
                 </div>
                 <blockquote>{source.text}</blockquote>
                 {#if source.startLocation !== undefined}
                   <button class="text-button" onclick={() => onJumpToSource(source)}>
-                    Jump to location {source.startLocation}
+                    Jump to source {source.citationId} at location {source.startLocation}
                   </button>
                 {/if}
               </li>
@@ -233,4 +342,4 @@
       </section>
     {/if}
   </div>
-</aside>
+</div>

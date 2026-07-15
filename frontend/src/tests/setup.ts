@@ -75,3 +75,12 @@ Object.defineProperty(HTMLElement.prototype, 'scrollBy', {
     this.dispatchEvent(new Event('scroll'));
   },
 });
+
+Object.defineProperty(Range.prototype, 'getClientRects', {
+  configurable: true,
+  value: vi.fn(() => []),
+});
+Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+  configurable: true,
+  value: vi.fn(() => new DOMRect()),
+});

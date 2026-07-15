@@ -15,8 +15,8 @@ export function listBooks(): Promise<LibraryResponse> {
   return invoke<LibraryResponse>('list_books');
 }
 
-export function importBook(path: string): Promise<BookSummary> {
-  return invoke<BookSummary>('import_book', { path });
+export function importBook(): Promise<BookSummary | null> {
+  return invoke<BookSummary | null>('import_book');
 }
 
 export function getBook(bookId: string): Promise<BookDetail> {
@@ -47,12 +47,16 @@ export function updateProgress(
   });
 }
 
-export function deleteBook(bookId: string): Promise<void> {
-  return invoke<void>('delete_book', { bookId });
+export function deleteBook(bookId: string): Promise<boolean> {
+  return invoke<boolean>('delete_book', { bookId });
 }
 
-export function getAiStatus(): Promise<AiStatus> {
-  return invoke<AiStatus>('get_ai_status');
+export function getAiStatus(bookId: string): Promise<AiStatus> {
+  return invoke<AiStatus>('get_ai_status', { bookId });
+}
+
+export function reindexBook(bookId: string): Promise<AiStatus> {
+  return invoke<AiStatus>('reindex_book', { bookId });
 }
 
 export function askBook(

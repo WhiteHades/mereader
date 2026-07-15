@@ -2,12 +2,12 @@ mod commands;
 mod content;
 mod db;
 mod error;
+mod limits;
 mod models;
 mod ollama;
 mod retrieval;
 mod state;
-
-use std::fs;
+mod storage;
 
 use tauri::Manager;
 
@@ -18,10 +18,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let root = app.path().app_data_dir()?;
-            fs::create_dir_all(root.join("books"))?;
+            let root = storage::initialize(&app.path().app_data_dir()?)?;
             let connection = db::open_database(&root.join("library.sqlite3"))?;
-            app.manage(AppState::new(root, connection)?);
+            let state = AppState::new(root, connection)?;
+            app.manage(state.clone());
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = ollama::retry_pending_indexes(state).await {
+                    tracing::warn!(kind = ?error.kind, "startup index retry stopped");
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -34,6 +39,7 @@ pub fn run() {
             commands::update_progress,
             commands::delete_book,
             commands::get_ai_status,
+            commands::reindex_book,
             commands::ask_book,
         ])
         .run(tauri::generate_context!())

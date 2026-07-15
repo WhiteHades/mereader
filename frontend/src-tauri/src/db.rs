@@ -6,12 +6,17 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use rusqlite_migration::{Migrations, M};
 
 use crate::error::{AppError, AppResult};
+use crate::limits::{
+    MAX_CHUNKS_PER_BOOK, MAX_COMPRESSED_BYTES, MAX_LIBRARY_BOOKS, MAX_NORMALIZED_TEXT_CHARS,
+    MAX_SPINE_CHAPTERS,
+};
 use crate::models::{BookDetail, BookList, BookSummary, ChapterContent, ChapterSummary, Progress};
 use crate::state::{DEFAULT_EMBEDDING_MODEL, DEFAULT_GENERATION_MODEL};
 
 pub fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(
-        r#"
+    Migrations::new(vec![
+        M::up(
+            r#"
         CREATE TABLE books (
             id TEXT PRIMARY KEY,
             source_hash TEXT NOT NULL UNIQUE,
@@ -84,7 +89,14 @@ pub fn migrations() -> Migrations<'static> {
         CREATE INDEX chunks_book_boundary_idx ON chunks(book_id, end_location);
         CREATE INDEX chunks_chapter_order_idx ON chunks(chapter_id, chunk_order);
         "#,
-    )])
+        ),
+        M::up(
+            r#"
+            ALTER TABLE index_state ADD COLUMN vector_dimension INTEGER;
+            ALTER TABLE index_state ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
+            "#,
+        ),
+    ])
 }
 
 pub fn configure_connection(connection: &Connection) -> AppResult<()> {
@@ -157,6 +169,27 @@ fn nonnegative_u32(value: i64) -> rusqlite::Result<u32> {
     })
 }
 
+fn bounded_count(value: i64, maximum: usize) -> AppResult<usize> {
+    let value = usize::try_from(value).map_err(|_| AppError::database())?;
+    if value > maximum {
+        return Err(AppError::database());
+    }
+    Ok(value)
+}
+
+pub fn book_hash_exists(connection: &Connection, source_hash: &str) -> AppResult<bool> {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM books WHERE source_hash = ?1)",
+            [source_hash],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            tracing::error!(%error, "failed to check duplicate EPUB");
+            AppError::database()
+        })
+}
+
 fn book_summary_from_row(row: &Row<'_>) -> rusqlite::Result<BookSummary> {
     let book_id: String = row.get(0)?;
     let current_location = nonnegative_u64(row.get(6)?)?;
@@ -176,6 +209,13 @@ fn book_summary_from_row(row: &Row<'_>) -> rusqlite::Result<BookSummary> {
 }
 
 pub fn list_books(connection: &Connection) -> AppResult<BookList> {
+    let count = connection
+        .query_row("SELECT COUNT(*) FROM books", [], |row| row.get::<_, i64>(0))
+        .map_err(|error| {
+            tracing::error!(%error, "failed to count books");
+            AppError::database()
+        })?;
+    bounded_count(count, MAX_LIBRARY_BOOKS)?;
     let mut statement = connection
         .prepare(
             r#"
@@ -235,6 +275,29 @@ pub fn get_book(connection: &Connection, book_id: &str) -> AppResult<BookDetail>
         })?
         .ok_or_else(|| AppError::not_found("Book not found."))?;
 
+    if book.9 > MAX_COMPRESSED_BYTES
+        || book.10 > (MAX_NORMALIZED_TEXT_CHARS + MAX_SPINE_CHAPTERS) as u64
+        || usize::try_from(book.11).map_or(true, |count| count > MAX_SPINE_CHAPTERS)
+    {
+        tracing::error!(book_id, "book metadata exceeds persisted limits");
+        return Err(AppError::database());
+    }
+    let chapter_count = connection
+        .query_row(
+            "SELECT COUNT(*) FROM chapters WHERE book_id = ?1",
+            [book_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| {
+            tracing::error!(%error, "failed to count chapters");
+            AppError::database()
+        })?;
+    let chapter_count = bounded_count(chapter_count, MAX_SPINE_CHAPTERS)?;
+    if chapter_count != book.11 as usize {
+        tracing::error!(book_id, "chapter count does not match book metadata");
+        return Err(AppError::database());
+    }
+
     let mut statement = connection
         .prepare(
             r#"
@@ -246,7 +309,7 @@ pub fn get_book(connection: &Connection, book_id: &str) -> AppResult<BookDetail>
             tracing::error!(%error, "failed to prepare chapters");
             AppError::database()
         })?;
-    let chapters = statement
+    let chapters: Vec<ChapterSummary> = statement
         .query_map([book_id], |row| {
             Ok(ChapterSummary {
                 id: row.get(0)?,
@@ -261,6 +324,13 @@ pub fn get_book(connection: &Connection, book_id: &str) -> AppResult<BookDetail>
             tracing::error!(%error, "failed to read chapters");
             AppError::database()
         })?;
+    if chapters.len() != chapter_count {
+        tracing::error!(
+            book_id,
+            "chapter count does not match bounded book metadata"
+        );
+        return Err(AppError::database());
+    }
     let progress = get_progress(connection, book_id)?;
 
     Ok(BookDetail {
@@ -306,6 +376,88 @@ pub fn get_progress(connection: &Connection, book_id: &str) -> AppResult<Progres
             AppError::database()
         })?
         .ok_or_else(|| AppError::not_found("Book progress not found."))
+}
+
+pub fn get_validated_progress(connection: &Connection, book_id: &str) -> AppResult<Progress> {
+    let (progress, total_locations) = connection
+        .query_row(
+            r#"
+            SELECT p.book_id, p.current_location, p.current_chapter_id,
+                   p.completion_percentage, p.last_read_at, b.total_locations
+            FROM progress p
+            JOIN books b ON b.id = p.book_id
+            WHERE p.book_id = ?1
+            "#,
+            [book_id],
+            |row| {
+                Ok((
+                    Progress {
+                        book_id: row.get(0)?,
+                        current_location: nonnegative_u64(row.get(1)?)?,
+                        current_chapter_id: row.get(2)?,
+                        completion_percentage: row.get(3)?,
+                        last_read_at: row.get(4)?,
+                    },
+                    nonnegative_u64(row.get(5)?)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| {
+            tracing::error!(%error, "failed to read progress for retrieval");
+            AppError::database()
+        })?
+        .ok_or_else(|| AppError::not_found("Book progress not found."))?;
+
+    if total_locations > (MAX_NORMALIZED_TEXT_CHARS + MAX_SPINE_CHAPTERS) as u64
+        || progress.current_location > total_locations
+        || !progress.completion_percentage.is_finite()
+        || !(0.0..=100.0).contains(&progress.completion_percentage)
+    {
+        tracing::error!(book_id, "stored progress is outside the book bounds");
+        return Err(AppError::database());
+    }
+    let expected_percentage = if total_locations == 0 {
+        0.0
+    } else {
+        progress.current_location as f64 / total_locations as f64 * 100.0
+    };
+    if (progress.completion_percentage - expected_percentage).abs() > 0.01 {
+        tracing::error!(book_id, "stored progress percentage is inconsistent");
+        return Err(AppError::database());
+    }
+    let chapter_id = progress.current_chapter_id.as_deref().ok_or_else(|| {
+        tracing::error!(book_id, "stored progress has no chapter");
+        AppError::database()
+    })?;
+    let location = i64::try_from(progress.current_location).map_err(|_| AppError::database())?;
+    let total = i64::try_from(total_locations).map_err(|_| AppError::database())?;
+    let chapter_valid = connection
+        .query_row(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM chapters
+                WHERE id = ?1 AND book_id = ?2 AND start_location <= ?3
+                  AND start_location >= 0 AND end_location <= ?4
+                  AND (end_location > ?3 OR (end_location = ?3 AND ?3 = ?4))
+            )
+            "#,
+            params![chapter_id, book_id, location, total],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| {
+            tracing::error!(%error, "failed to validate progress chapter");
+            AppError::database()
+        })?;
+    if !chapter_valid {
+        tracing::error!(
+            book_id,
+            chapter_id,
+            "stored progress chapter is inconsistent"
+        );
+        return Err(AppError::database());
+    }
+    Ok(progress)
 }
 
 pub fn get_cover_record(connection: &Connection, book_id: &str) -> AppResult<(String, String)> {
@@ -438,7 +590,7 @@ pub fn update_progress(
         current_location as f64 / total_locations as f64 * 100.0
     };
     let last_read_at = Utc::now().to_rfc3339();
-    connection
+    let changed = connection
         .execute(
             r#"
             UPDATE progress
@@ -458,6 +610,9 @@ pub fn update_progress(
             tracing::error!(%error, "failed to update progress");
             AppError::database()
         })?;
+    if changed != 1 {
+        return Err(AppError::not_found("Book progress not found."));
+    }
 
     get_progress(connection, book_id)
 }
@@ -467,29 +622,26 @@ pub fn delete_book_rows(connection: &mut Connection, book_id: &str) -> AppResult
         tracing::error!(%error, "failed to begin book deletion");
         AppError::database()
     })?;
-    let row_ids = {
-        let mut statement = transaction
-            .prepare("SELECT id FROM chunks WHERE book_id = ?1")
-            .map_err(|error| {
-                tracing::error!(%error, "failed to prepare chunk deletion");
-                AppError::database()
-            })?;
-        statement
-            .query_map([book_id], |row| row.get::<_, i64>(0))
-            .and_then(Iterator::collect::<rusqlite::Result<Vec<_>>>)
-            .map_err(|error| {
-                tracing::error!(%error, "failed to read chunk ids for deletion");
-                AppError::database()
-            })?
-    };
-    for row_id in row_ids {
-        transaction
-            .execute("DELETE FROM chunks_fts WHERE rowid = ?1", [row_id])
-            .map_err(|error| {
-                tracing::error!(%error, "failed to delete FTS row");
-                AppError::database()
-            })?;
-    }
+    let chunk_count = transaction
+        .query_row(
+            "SELECT COUNT(*) FROM chunks WHERE book_id = ?1",
+            [book_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| {
+            tracing::error!(%error, "failed to count chunks for deletion");
+            AppError::database()
+        })?;
+    bounded_count(chunk_count, MAX_CHUNKS_PER_BOOK)?;
+    transaction
+        .execute(
+            "DELETE FROM chunks_fts WHERE rowid IN (SELECT id FROM chunks WHERE book_id = ?1)",
+            [book_id],
+        )
+        .map_err(|error| {
+            tracing::error!(%error, "failed to delete FTS rows");
+            AppError::database()
+        })?;
     let changed = transaction
         .execute("DELETE FROM books WHERE id = ?1", [book_id])
         .map_err(|error| {
@@ -544,6 +696,16 @@ mod tests {
             .pragma_query_value(None, "foreign_keys", |row| row.get(0))
             .unwrap();
         assert!(foreign_keys);
+        for column in ["vector_dimension", "generation"] {
+            let exists: bool = connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM pragma_table_info('index_state') WHERE name = ?1)",
+                    [column],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(exists, "missing index_state.{column}");
+        }
     }
 
     fn insert_progress_fixture(connection: &Connection) {
@@ -604,5 +766,36 @@ mod tests {
 
         let completed = update_progress(&connection, "book", 200, Some("chapter-2")).unwrap();
         assert_eq!(completed.completion_percentage, 100.0);
+    }
+
+    #[test]
+    fn retrieval_progress_fails_closed_on_malformed_rows() {
+        let connection = migrated_connection();
+        insert_progress_fixture(&connection);
+        assert!(get_validated_progress(&connection, "book").is_ok());
+
+        connection
+            .execute(
+                "UPDATE progress SET current_location = 201, completion_percentage = 100.0 WHERE book_id = 'book'",
+                [],
+            )
+            .unwrap();
+        assert!(get_validated_progress(&connection, "book").is_err());
+
+        connection
+            .execute(
+                "UPDATE progress SET current_location = 50, current_chapter_id = 'chapter-2', completion_percentage = 25.0 WHERE book_id = 'book'",
+                [],
+            )
+            .unwrap();
+        assert!(get_validated_progress(&connection, "book").is_err());
+
+        connection
+            .execute(
+                "UPDATE progress SET current_chapter_id = 'chapter-1', completion_percentage = 90.0 WHERE book_id = 'book'",
+                [],
+            )
+            .unwrap();
+        assert!(get_validated_progress(&connection, "book").is_err());
     }
 }

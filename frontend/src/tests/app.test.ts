@@ -12,12 +12,12 @@ const mocks = vi.hoisted(() => ({
   getAiStatus: vi.fn(),
 }));
 
-vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('../lib/commands', () => ({
   ...mocks,
   importBook: vi.fn(),
   deleteBook: vi.fn(),
   askBook: vi.fn(),
+  reindexBook: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 
@@ -27,7 +27,7 @@ const detail: BookDetail = {
   author: 'Page Turner',
   progress: null,
   totalLocations: 10,
-  chapters: [{ id: 'chapter-1', title: 'Start', order: 1, startLocation: 1, endLocation: 10 }],
+  chapters: [{ id: 'chapter-1', title: 'Start', order: 0, startLocation: 0, endLocation: 10 }],
 };
 
 describe('App navigation', () => {
@@ -42,7 +42,7 @@ describe('App navigation', () => {
       startLocation: 1,
       endLocation: 10,
     });
-    mocks.updateProgress.mockResolvedValue({ currentLocation: 1, currentChapterId: 'chapter-1', completionPercentage: 10 });
+    mocks.updateProgress.mockResolvedValue({ currentLocation: 0, currentChapterId: 'chapter-1', completionPercentage: 0 });
     mocks.getAiStatus.mockResolvedValue({ state: 'ready' });
   });
 

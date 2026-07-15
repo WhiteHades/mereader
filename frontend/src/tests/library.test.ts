@@ -4,14 +4,12 @@ import Library from '../components/Library.svelte';
 import type { BookSummary } from '../lib/types';
 
 const mocks = vi.hoisted(() => ({
-  open: vi.fn(),
   listBooks: vi.fn(),
   importBook: vi.fn(),
   getCover: vi.fn(),
   deleteBook: vi.fn(),
 }));
 
-vi.mock('@tauri-apps/plugin-dialog', () => ({ open: mocks.open }));
 vi.mock('../lib/commands', () => ({
   listBooks: mocks.listBooks,
   importBook: mocks.importBook,
@@ -35,9 +33,9 @@ function deferred<T>() {
 
 describe('Library', () => {
   beforeEach(() => {
-    mocks.open.mockResolvedValue(null);
+    mocks.importBook.mockResolvedValue(null);
     mocks.getCover.mockRejectedValue(new Error('no cover'));
-    mocks.deleteBook.mockResolvedValue(undefined);
+    mocks.deleteBook.mockResolvedValue(true);
   });
 
   it('shows explicit loading and empty states', async () => {
@@ -65,19 +63,22 @@ describe('Library', () => {
     expect(mocks.listBooks).toHaveBeenCalledTimes(2);
   });
 
-  it('imports by path and reports in-progress work', async () => {
+  it('lets the native command choose a book and treats null as cancellation', async () => {
     const pendingImport = deferred<BookSummary>();
     mocks.listBooks.mockResolvedValue({ books: [], total: 0 });
-    mocks.open.mockResolvedValue('/books/new.epub');
     mocks.importBook.mockReturnValue(pendingImport.promise);
     render(Library, { onOpenBook: vi.fn() });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Import your first EPUB' }));
-    expect(mocks.importBook).toHaveBeenCalledWith('/books/new.epub');
-    expect(await screen.findByText('The reader core is indexing your book')).toBeTruthy();
+    expect(mocks.importBook).toHaveBeenCalledWith();
+    expect(await screen.findByText('The reader core is opening or importing your book')).toBeTruthy();
 
     pendingImport.resolve(book);
     expect(await screen.findByText('The Test Book')).toBeTruthy();
+
+    mocks.importBook.mockResolvedValueOnce(null);
+    await fireEvent.click(screen.getByRole('button', { name: 'Import EPUB' }));
+    expect(screen.getByText('The Test Book')).toBeTruthy();
   });
 
   it('searches, opens, and confirms deletion with semantic controls', async () => {
@@ -100,5 +101,18 @@ describe('Library', () => {
 
     await waitFor(() => expect(mocks.deleteBook).toHaveBeenCalledWith('book-1'));
     expect(await screen.findByText('Bring one book. Start somewhere.')).toBeTruthy();
+  });
+
+  it('keeps the book when native deletion confirmation is cancelled', async () => {
+    mocks.listBooks.mockResolvedValue({ books: [book], total: 1 });
+    mocks.deleteBook.mockResolvedValue(false);
+    render(Library, { onOpenBook: vi.fn() });
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete The Test Book' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    await waitFor(() => expect(mocks.deleteBook).toHaveBeenCalledWith('book-1'));
+    expect(screen.getByRole('button', { name: 'Read The Test Book' })).toBeTruthy();
+    expect(screen.queryByText('Remove this book?')).toBeNull();
   });
 });

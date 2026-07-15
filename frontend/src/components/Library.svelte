@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { open } from '@tauri-apps/plugin-dialog';
   import { onDestroy, onMount } from 'svelte';
   import iconUrl from '../assets/mereader_icon.png';
   import {
@@ -20,7 +19,7 @@
   let books = $state<BookSummary[]>([]);
   let loading = $state(true);
   let loadError = $state('');
-  let importState = $state<'idle' | 'choosing' | 'importing'>('idle');
+  let importState = $state<'idle' | 'importing'>('idle');
   let importError = $state('');
   let actionError = $state('');
   let query = $state('');
@@ -71,18 +70,10 @@
 
   async function chooseBook(): Promise<void> {
     importError = '';
-    importState = 'choosing';
+    importState = 'importing';
     try {
-      const selected = await open({
-        multiple: false,
-        directory: false,
-        filters: [{ name: 'EPUB books', extensions: ['epub'] }],
-      });
-      const path = Array.isArray(selected) ? selected[0] : selected;
-      if (!path) return;
-
-      importState = 'importing';
-      const imported = await importBook(path);
+      const imported = await importBook();
+      if (!imported) return;
       books = [imported, ...books.filter((book) => book.id !== imported.id)];
     } catch (error) {
       importError = errorMessage(error);
@@ -95,7 +86,11 @@
     deletingBookId = bookId;
     actionError = '';
     try {
-      await deleteBook(bookId);
+      const deleted = await deleteBook(bookId);
+      if (!deleted) {
+        deleteCandidate = null;
+        return;
+      }
       const url = coverUrls[bookId];
       if (url) URL.revokeObjectURL(url);
       const nextUrls = { ...coverUrls };
@@ -156,14 +151,14 @@
       </div>
     </div>
     <button class="button primary" onclick={chooseBook} disabled={importState !== 'idle'}>
-      {importState === 'choosing' ? 'Choose an EPUB...' : importState === 'importing' ? 'Importing book...' : 'Import EPUB'}
+      {importState === 'importing' ? 'Opening book...' : 'Import EPUB'}
     </button>
   </header>
 
   {#if importState !== 'idle'}
     <div class="status-line" role="status">
       <span class="activity-dot" aria-hidden="true"></span>
-      {importState === 'choosing' ? 'Waiting for a file selection' : 'The reader core is indexing your book'}
+      The reader core is opening or importing your book
     </div>
   {/if}
 
@@ -202,7 +197,7 @@
       <div class="empty-mark" aria-hidden="true">M</div>
       <p class="eyebrow">No books yet</p>
       <h2>Bring one book. Start somewhere.</h2>
-      <p>Choose an EPUB from your computer. MeReader passes only its path to the local reader core.</p>
+      <p>Choose an EPUB from your computer. The native reader core opens and imports it locally.</p>
       <button class="button primary" onclick={chooseBook}>Import your first EPUB</button>
     </div>
   {:else}

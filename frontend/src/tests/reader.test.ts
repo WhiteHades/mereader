@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   updateProgress: vi.fn(),
   getAiStatus: vi.fn(),
   askBook: vi.fn(),
+  reindexBook: vi.fn(),
 }));
 
 vi.mock('../lib/commands', () => ({
@@ -19,6 +20,7 @@ vi.mock('../lib/commands', () => ({
   updateProgress: mocks.updateProgress,
   getAiStatus: mocks.getAiStatus,
   askBook: mocks.askBook,
+  reindexBook: mocks.reindexBook,
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 
@@ -33,8 +35,8 @@ const detail: BookDetail = {
     completionPercentage: 20,
   },
   chapters: [
-    { id: 'chapter-1', title: 'Opening', order: 1, startLocation: 1, endLocation: 100 },
-    { id: 'chapter-2', title: 'Ending', order: 2, startLocation: 101, endLocation: 200 },
+    { id: 'chapter-1', title: 'Opening', order: 0, startLocation: 0, endLocation: 100 },
+    { id: 'chapter-2', title: 'Ending', order: 1, startLocation: 100, endLocation: 200 },
   ],
 };
 
@@ -46,17 +48,28 @@ function deferred<T>() {
 
 describe('Reader', () => {
   beforeEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
     mocks.getBook.mockResolvedValue(detail);
     mocks.getChapter.mockResolvedValue({
       chapterId: 'chapter-1',
       title: 'Opening',
       html: '<h1>Opening</h1><p>Sanitized chapter text.</p>',
-      startLocation: 1,
+      startLocation: 0,
       endLocation: 100,
     });
     mocks.updateProgress.mockResolvedValue(detail.progress);
     mocks.getChapterAsset.mockResolvedValue({ mimeType: 'image/png', data: [137, 80, 78, 71] });
     mocks.getAiStatus.mockResolvedValue({ state: 'ready' });
+    mocks.reindexBook.mockResolvedValue({ state: 'ready' });
+    mocks.askBook.mockResolvedValue({ answer: '', sources: [], progressBoundary: null });
   });
 
   it('waits for book progress before loading and restoring chapter content', async () => {
@@ -81,7 +94,7 @@ describe('Reader', () => {
 
     await screen.findByRole('region', { name: 'Opening' });
     await fireEvent.click(screen.getByRole('button', { name: 'Next chapter' }));
-    await waitFor(() => expect(mocks.updateProgress).toHaveBeenCalledWith('book-1', 101, 'chapter-2'));
+    await waitFor(() => expect(mocks.updateProgress).toHaveBeenCalledWith('book-1', 100, 'chapter-2'));
 
     await fireEvent.click(screen.getByRole('button', { name: 'Library' }));
     expect(onBack).not.toHaveBeenCalled();
@@ -109,9 +122,76 @@ describe('Reader', () => {
     await fireEvent.click(askAi);
     expect(contents.getAttribute('aria-expanded')).toBe('false');
     expect(askAi.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('dialog', { name: 'Ask MeReader' }).getAttribute('aria-modal')).toBe('true');
 
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(askAi.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(askAi);
+  });
+
+  it('restores trigger focus on close and labels drawers as dialogs', async () => {
+    render(Reader, { bookId: 'book-1', onBack: vi.fn() });
+    await screen.findByText('Sanitized chapter text.');
+
+    const contents = screen.getByRole('button', { name: 'Contents' });
+    await fireEvent.click(contents);
+    const dialog = screen.getByRole('dialog', { name: 'Contents' });
+    expect(dialog).toBeTruthy();
+    expect(dialog.hasAttribute('aria-modal')).toBe(false);
+    await fireEvent.click(screen.getByRole('button', { name: 'Close contents panel' }));
+    expect(document.activeElement).toBe(contents);
+
+    const askAi = screen.getByRole('button', { name: 'Ask AI' });
+    await fireEvent.click(askAi);
+    await fireEvent.click(screen.getByRole('button', { name: 'Close AI panel' }));
+    expect(document.activeElement).toBe(askAi);
+    const hiddenAiPanel = document.getElementById('ai-panel');
+    expect(hiddenAiPanel?.hasAttribute('hidden')).toBe(true);
+    expect(hiddenAiPanel?.inert).toBe(true);
+
+    const text = screen.getByRole('button', { name: 'Text' });
+    await fireEvent.click(text);
+    await fireEvent.click(screen.getByRole('button', { name: 'Close reading settings' }));
+    expect(document.activeElement).toBe(text);
+  });
+
+  it('uses one-based TOC labels for zero-based chapter order', async () => {
+    render(Reader, { bookId: 'book-1', onBack: vi.fn() });
+    await screen.findByText('Sanitized chapter text.');
+    await fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+
+    expect(screen.getByText('01')).toBeTruthy();
+    expect(screen.getByText('02')).toBeTruthy();
+  });
+
+  it('closes AI and focuses reader content after a citation jump', async () => {
+    mocks.askBook.mockResolvedValue({
+      answer: 'Grounded answer [S1].',
+      progressBoundary: null,
+      sources: [{
+        citationId: 'S1',
+        chapterId: 'chapter-1',
+        chapterTitle: 'Opening',
+        text: 'Source text',
+        startLocation: 10,
+        endLocation: 20,
+        relevanceScore: 0.1,
+        retrievalMethods: ['keyword'],
+      }],
+    });
+    render(Reader, { bookId: 'book-1', onBack: vi.fn() });
+    await screen.findByText('Sanitized chapter text.');
+    const askAi = screen.getByRole('button', { name: 'Ask AI' });
+    await fireEvent.click(askAi);
+    const input = await screen.findByLabelText('Question about this book');
+    await fireEvent.input(input, { target: { value: 'What is grounded?' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Jump to source S1' }));
+
+    await waitFor(() => expect(askAi.getAttribute('aria-expanded')).toBe('false'));
+    await waitFor(() => expect(document.activeElement).toBe(
+      screen.getByRole('region', { name: 'Opening' }),
+    ));
   });
 
   it('shows a recoverable book load error', async () => {
@@ -180,5 +260,39 @@ describe('Reader', () => {
 
     view.unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:second');
+  });
+
+  it('saves image-only chapter starts and next chapter navigation', async () => {
+    const imageOnlyDetail: BookDetail = {
+      ...detail,
+      progress: {
+        currentLocation: 1,
+        currentChapterId: 'chapter-2',
+        completionPercentage: 5,
+      },
+      chapters: [
+        { id: 'chapter-image', title: 'Plate', order: 0, startLocation: 0, endLocation: 1 },
+        { id: 'chapter-2', title: 'Text', order: 1, startLocation: 1, endLocation: 20 },
+      ],
+      totalLocations: 20,
+    };
+    mocks.getBook.mockResolvedValue(imageOnlyDetail);
+    mocks.getChapter.mockImplementation((_bookId: string, chapterId: string) => Promise.resolve({
+      chapterId,
+      title: chapterId === 'chapter-image' ? 'Plate' : 'Text',
+      html: chapterId === 'chapter-image' ? '<img alt="A plate">' : '<p>Text chapter</p>',
+      startLocation: chapterId === 'chapter-image' ? 0 : 1,
+      endLocation: chapterId === 'chapter-image' ? 1 : 20,
+    }));
+    render(Reader, { bookId: 'book-1', onBack: vi.fn() });
+
+    await screen.findByText('Text chapter');
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous chapter' }));
+    expect(await screen.findByAltText('A plate')).toBeTruthy();
+    await waitFor(() => expect(mocks.updateProgress).toHaveBeenCalledWith('book-1', 0, 'chapter-image'));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Next chapter' }));
+    expect(await screen.findByText('Text chapter')).toBeTruthy();
+    await waitFor(() => expect(mocks.updateProgress).toHaveBeenCalledWith('book-1', 1, 'chapter-2'));
   });
 });

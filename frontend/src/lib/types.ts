@@ -49,15 +49,23 @@ export interface AiStatus {
   message?: string;
   indexedThroughLocation?: number;
   totalLocations?: number;
+  available?: boolean;
+  generationModelAvailable?: boolean;
+  embeddingModelAvailable?: boolean;
+  indexedBooks?: number;
+  textOnlyBooks?: number;
+  failedBooks?: number;
 }
 
 export interface SourcePassage {
+  citationId: string;
   chapterId: string;
   chapterTitle: string;
   text: string;
   startLocation?: number;
   endLocation?: number;
   relevanceScore?: number;
+  retrievalMethods: string[];
 }
 
 export interface ProgressBoundary {

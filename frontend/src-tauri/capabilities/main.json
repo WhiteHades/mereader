@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "Minimal permissions for the MeReader window",
   "windows": ["main"],
-  "permissions": ["dialog:allow-open"]
+  "permissions": []
 }

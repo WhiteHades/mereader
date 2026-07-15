@@ -1,7 +1,17 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { errorMessage, getChapter, getChapterAsset } from '../lib/commands';
-  import { findChapterAtLocation, lastLocationInChapter } from '../lib/chapters';
+  import {
+    chapterContainsLocation,
+    findChapterAtLocation,
+    lastLocationInChapter,
+  } from '../lib/chapters';
+  import {
+    createTextAnchors,
+    lastFullyVisibleLocation,
+    nearestTextAnchor,
+    type TextAnchor,
+  } from '../lib/text-anchors';
   import type { ChapterContent, ChapterSummary, ReaderSettings } from '../lib/types';
 
   interface PositionChange {
@@ -13,6 +23,7 @@
     bookId: string;
     chapters: ChapterSummary[];
     initialLocation: number;
+    initialChapterId: string | null;
     settings: ReaderSettings;
     onPositionChange: (position: PositionChange) => void;
     onChapterChange: (chapter: ChapterSummary) => void;
@@ -22,15 +33,17 @@
     bookId,
     chapters,
     initialLocation,
+    initialChapterId,
     settings,
     onPositionChange,
     onChapterChange,
   }: Props = $props();
 
   let scroller = $state<HTMLElement>();
+  let contentRoot = $state<HTMLElement>();
   let chapterContent = $state<ChapterContent | null>(null);
   let currentChapter = $state<ChapterSummary | null>(null);
-  let currentLocation = $state(1);
+  let currentLocation = $state(0);
   let loading = $state(true);
   let chapterError = $state('');
   let restoring = false;
@@ -38,22 +51,49 @@
   let loadVersion = 0;
   let destroyed = false;
   let chapterAssetUrls: string[] = [];
+  let textAnchors: TextAnchor[] = [];
+  let userScrolled = false;
+  let previousSettingsSignature: string | null = null;
 
   const generatedAssetPattern = /^assets\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|gif|webp|avif))$/;
 
   onMount(() => {
     currentLocation = initialLocation;
-    void navigateToLocation(initialLocation, false);
+    const initialChapter = chapters.find((chapter) =>
+      chapter.id === initialChapterId &&
+      chapterContainsLocation(chapters, chapter, initialLocation)
+    );
+    if (initialChapter) {
+      void loadChapter(initialChapter, initialLocation, false);
+    } else {
+      void navigateToLocation(initialLocation, false);
+    }
     return () => {
       destroyed = true;
       loadVersion += 1;
       cancelAnimationFrame(scrollFrame);
       revokeChapterAssets();
+      textAnchors = [];
     };
+  });
+
+  $effect(() => {
+    const signature = settingsSignature(settings);
+    if (previousSettingsSignature === null) {
+      previousSettingsSignature = signature;
+      return;
+    }
+    if (signature === previousSettingsSignature) return;
+    previousSettingsSignature = signature;
+    void rebuildAfterSettingsChange();
   });
 
   export async function goToLocation(location: number): Promise<void> {
     await navigateToLocation(location, true);
+  }
+
+  export function focusContent(): void {
+    scroller?.focus({ preventScroll: true });
   }
 
   async function navigateToLocation(location: number, reportPosition: boolean): Promise<void> {
@@ -119,6 +159,7 @@
   ): Promise<void> {
     const version = ++loadVersion;
     revokeChapterAssets();
+    textAnchors = [];
     chapterContent = null;
     loading = true;
     chapterError = '';
@@ -133,8 +174,10 @@
       chapterContent = { ...loaded, html: resolved.html };
       currentChapter = chapter;
       currentLocation = location;
+      userScrolled = false;
       onChapterChange(chapter);
       await tick();
+      rebuildTextAnchors();
       scrollToLocation(location, reportPosition);
     } catch (error) {
       if (!destroyed && version === loadVersion) chapterError = errorMessage(error);
@@ -173,17 +216,62 @@
     chapterAssetUrls = [];
   }
 
+  function rebuildTextAnchors(): void {
+    textAnchors = contentRoot && currentChapter
+      ? createTextAnchors(contentRoot, currentChapter.startLocation)
+      : [];
+  }
+
+  async function rebuildAfterSettingsChange(): Promise<void> {
+    const location = currentLocation;
+    await tick();
+    if (!contentRoot || !currentChapter) return;
+    rebuildTextAnchors();
+    scrollToLocation(location, false);
+  }
+
+  function watchChapterAssets(node: HTMLElement): { destroy: () => void } {
+    const handleAssetSettled = (event: Event): void => {
+      if (!(event.target instanceof HTMLImageElement)) return;
+      const location = currentLocation;
+      requestAnimationFrame(() => {
+        if (node !== contentRoot || !currentChapter) return;
+        rebuildTextAnchors();
+        if (!userScrolled) scrollToLocation(location, false);
+      });
+    };
+    node.addEventListener('load', handleAssetSettled, true);
+    node.addEventListener('error', handleAssetSettled, true);
+    return {
+      destroy: () => {
+        node.removeEventListener('load', handleAssetSettled, true);
+        node.removeEventListener('error', handleAssetSettled, true);
+      },
+    };
+  }
+
   function scrollToLocation(location: number, reportPosition: boolean): void {
     if (!scroller || !currentChapter) return;
     restoring = true;
-    const maximum = lastLocationInChapter(chapters, currentChapter);
-    const range = Math.max(1, maximum - currentChapter.startLocation);
-    const fraction = (location - currentChapter.startLocation) / range;
-    const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    scroller.scrollTop = Math.max(0, Math.min(maxScroll, fraction * maxScroll));
-    currentLocation = location;
+    const bounded = Math.max(
+      currentChapter.startLocation,
+      Math.min(currentChapter.endLocation, location),
+    );
+    if (bounded <= currentChapter.startLocation || textAnchors.length === 0) {
+      scroller.scrollTop = 0;
+    } else {
+      const anchor = nearestTextAnchor(textAnchors, bounded);
+      if (anchor && typeof anchor.range.getBoundingClientRect === 'function') {
+        const anchorRect = anchor.range.getBoundingClientRect();
+        const viewport = scroller.getBoundingClientRect();
+        const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        const target = scroller.scrollTop + anchorRect.top - viewport.top;
+        scroller.scrollTop = Math.max(0, Math.min(maxScroll, target));
+      }
+    }
+    currentLocation = bounded;
     if (reportPosition) {
-      onPositionChange({ location, chapterId: currentChapter.id });
+      onPositionChange({ location: bounded, chapterId: currentChapter.id });
     }
     requestAnimationFrame(() => {
       restoring = false;
@@ -192,20 +280,25 @@
 
   function handleScroll(): void {
     if (restoring || !scroller || !currentChapter) return;
+    userScrolled = true;
     cancelAnimationFrame(scrollFrame);
     scrollFrame = requestAnimationFrame(() => {
       if (!scroller || !currentChapter) return;
-      const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-      const fraction = maxScroll === 0 ? 0 : scroller.scrollTop / maxScroll;
-      const maximum = lastLocationInChapter(chapters, currentChapter);
-      const range = maximum - currentChapter.startLocation;
-      const location = Math.max(
+      const location = lastFullyVisibleLocation(
+        textAnchors,
+        scroller.getBoundingClientRect(),
         currentChapter.startLocation,
-        Math.min(maximum, Math.round(currentChapter.startLocation + range * fraction)),
+        currentChapter.endLocation,
       );
       if (location === currentLocation) return;
       currentLocation = location;
-      onPositionChange({ location, chapterId: currentChapter.id });
+      const index = chapterIndex();
+      const progressChapter = location === currentChapter.endLocation &&
+        currentChapter.startLocation < currentChapter.endLocation &&
+        index >= 0 && index < chapters.length - 1
+        ? chapters[index + 1]
+        : currentChapter;
+      onPositionChange({ location, chapterId: progressChapter.id });
     });
   }
 
@@ -215,6 +308,10 @@
 
   function scrollBehavior(): ScrollBehavior {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+  }
+
+  function settingsSignature(value: ReaderSettings): string {
+    return `${value.fontSize}:${value.lineHeight}:${value.readingWidth}`;
   }
 </script>
 
@@ -240,9 +337,15 @@
       onscroll={handleScroll}
       role="region"
       aria-label={chapterContent.title}
+      tabindex="-1"
       style={`--reader-font-size: ${settings.fontSize}px; --reader-line-height: ${settings.lineHeight}; --reader-width: ${settings.readingWidth}px`}
     >
-      <div class="chapter-content" data-testid="chapter-content">
+      <div
+        class="chapter-content"
+        data-testid="chapter-content"
+        bind:this={contentRoot}
+        use:watchChapterAssets
+      >
         <!-- Rust sanitizes markup; the frontend replaces validated generated image names with Blob URLs. -->
         {@html chapterContent.html}
       </div>

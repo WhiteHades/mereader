@@ -28,6 +28,7 @@ import {
   getCover,
   importBook,
   listBooks,
+  reindexBook,
   updateProgress,
 } from '../lib/commands';
 
@@ -39,18 +40,19 @@ describe('Tauri command wrappers', () => {
 
   it('uses exact command names and camelCase arguments', async () => {
     await listBooks();
-    await importBook('/books/example.epub');
+    await importBook();
     await getBook('book-1');
     await getCover('book-1');
     await getChapter('book-1', 'chapter-2');
     await getChapterAsset('book-1', '11111111-1111-4111-8111-111111111111.png');
     await updateProgress('book-1', 42, 'chapter-2');
     await deleteBook('book-1');
-    await getAiStatus();
+    await getAiStatus('book-1');
+    await reindexBook('book-1');
 
     expect(mocks.invoke.mock.calls).toEqual([
       ['list_books'],
-      ['import_book', { path: '/books/example.epub' }],
+      ['import_book'],
       ['get_book', { bookId: 'book-1' }],
       ['get_cover', { bookId: 'book-1' }],
       ['get_chapter', { bookId: 'book-1', chapterId: 'chapter-2' }],
@@ -60,7 +62,8 @@ describe('Tauri command wrappers', () => {
       }],
       ['update_progress', { bookId: 'book-1', currentLocation: 42, currentChapterId: 'chapter-2' }],
       ['delete_book', { bookId: 'book-1' }],
-      ['get_ai_status'],
+      ['get_ai_status', { bookId: 'book-1' }],
+      ['reindex_book', { bookId: 'book-1' }],
     ]);
   });
 

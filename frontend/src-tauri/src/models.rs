@@ -95,6 +95,7 @@ pub struct AiStatus {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourcePassage {
+    pub citation_id: String,
     pub chapter_id: String,
     pub chapter_title: String,
     pub text: String,
@@ -161,10 +162,4 @@ pub struct OllamaGenerateChunk {
 pub struct IndexedChunk {
     pub id: i64,
     pub text: String,
-}
-
-#[derive(Debug)]
-pub struct ImportedBook {
-    pub summary: BookSummary,
-    pub chunks: Vec<IndexedChunk>,
 }
