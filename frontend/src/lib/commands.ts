@@ -1,0 +1,79 @@
+import { Channel, invoke } from '@tauri-apps/api/core';
+import type {
+  AiEvent,
+  AiStatus,
+  AnswerResponse,
+  BookDetail,
+  BookSummary,
+  ChapterContent,
+  CoverData,
+  LibraryResponse,
+  Progress,
+} from './types';
+
+export function listBooks(): Promise<LibraryResponse> {
+  return invoke<LibraryResponse>('list_books');
+}
+
+export function importBook(path: string): Promise<BookSummary> {
+  return invoke<BookSummary>('import_book', { path });
+}
+
+export function getBook(bookId: string): Promise<BookDetail> {
+  return invoke<BookDetail>('get_book', { bookId });
+}
+
+export function getCover(bookId: string): Promise<CoverData> {
+  return invoke<CoverData>('get_cover', { bookId });
+}
+
+export function getChapter(bookId: string, chapterId: string): Promise<ChapterContent> {
+  return invoke<ChapterContent>('get_chapter', { bookId, chapterId });
+}
+
+export function getChapterAsset(bookId: string, assetName: string): Promise<CoverData> {
+  return invoke<CoverData>('get_chapter_asset', { bookId, assetName });
+}
+
+export function updateProgress(
+  bookId: string,
+  currentLocation: number,
+  currentChapterId: string,
+): Promise<Progress> {
+  return invoke<Progress>('update_progress', {
+    bookId,
+    currentLocation,
+    currentChapterId,
+  });
+}
+
+export function deleteBook(bookId: string): Promise<void> {
+  return invoke<void>('delete_book', { bookId });
+}
+
+export function getAiStatus(): Promise<AiStatus> {
+  return invoke<AiStatus>('get_ai_status');
+}
+
+export function askBook(
+  bookId: string,
+  question: string,
+  onEvent: (event: AiEvent) => void,
+): Promise<AnswerResponse> {
+  const channel = new Channel<AiEvent>();
+  channel.onmessage = onEvent;
+  return invoke<AnswerResponse>('ask_book', { bookId, question, onEvent: channel });
+}
+
+export function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string' && error) return error;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string' &&
+    error.message.length > 0
+  ) return error.message;
+  return 'The reader core returned an unknown error.';
+}
