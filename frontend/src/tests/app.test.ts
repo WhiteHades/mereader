@@ -10,6 +10,14 @@ const mocks = vi.hoisted(() => ({
   getChapter: vi.fn(),
   updateProgress: vi.fn(),
   getAiStatus: vi.fn(),
+  onCloseRequested: vi.fn(),
+}));
+
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({
+    onCloseRequested: mocks.onCloseRequested,
+    destroy: vi.fn(),
+  }),
 }));
 
 vi.mock('../lib/commands', () => ({
@@ -17,6 +25,7 @@ vi.mock('../lib/commands', () => ({
   importBook: vi.fn(),
   deleteBook: vi.fn(),
   askBook: vi.fn(),
+  cancelAiRequest: vi.fn(),
   reindexBook: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
@@ -44,6 +53,7 @@ describe('App navigation', () => {
     });
     mocks.updateProgress.mockResolvedValue({ currentLocation: 0, currentChapterId: 'chapter-1', completionPercentage: 0 });
     mocks.getAiStatus.mockResolvedValue({ state: 'ready' });
+    mocks.onCloseRequested.mockResolvedValue(() => {});
   });
 
   it('switches between library and reader without a router', async () => {

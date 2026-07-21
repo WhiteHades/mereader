@@ -348,7 +348,7 @@ pub fn retrieve(
                 tracing::error!(%error, "failed to execute FTS retrieval");
                 AppError::database()
             })?;
-        rankings.push(("fts", results));
+        rankings.push(("keyword", results));
     }
     if let Some(query_embedding) = query_embedding {
         let ranking = vector_ranking(
@@ -376,13 +376,16 @@ pub fn retrieve(
             .total_cmp(&left.1)
             .then_with(|| left.0.cmp(&right.0))
     });
-    ranked.truncate(RESULT_LIMIT);
-
     let mut sources = Vec::with_capacity(ranked.len());
+    let mut seen_text = HashSet::new();
     for (id, score) in ranked {
         let Some(candidate) = candidate_by_id(connection, book_id, boundary, id)? else {
             continue;
         };
+        let text_key = candidate.text.chars().take(100).collect::<String>();
+        if !seen_text.insert(text_key) {
+            continue;
+        }
         let retrieval_methods = rankings
             .iter()
             .filter(|(_, ranking)| ranking.contains(&candidate.id))
@@ -398,6 +401,9 @@ pub fn retrieve(
             relevance_score: score,
             retrieval_methods,
         });
+        if sources.len() == RESULT_LIMIT {
+            break;
+        }
     }
     Ok((book_title, sources))
 }

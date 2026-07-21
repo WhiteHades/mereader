@@ -3,5 +3,9 @@
   "identifier": "main",
   "description": "Minimal permissions for the MeReader window",
   "windows": ["main"],
-  "permissions": []
+  "permissions": [
+    "core:window:allow-destroy",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
 }

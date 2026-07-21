@@ -2,10 +2,13 @@ use chrono::Utc;
 use reqwest::{Response, StatusCode};
 use rusqlite::{params, OptionalExtension};
 use serde_json::json;
+use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
 
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::limits::{
-    MAX_CHUNKS_PER_BOOK, MAX_LIBRARY_BOOKS, MAX_NORMALIZED_TEXT_CHARS, MAX_VECTOR_DIMENSION,
+    MAX_CHUNKS_PER_BOOK, MAX_EMBEDDING_BYTES_PER_BOOK, MAX_LIBRARY_BOOKS,
+    MAX_NORMALIZED_TEXT_CHARS, MAX_VECTOR_DIMENSION,
 };
 use crate::models::{
     IndexedChunk, OllamaEmbedResponse, OllamaGenerateChunk, OllamaModel, OllamaTagsResponse,
@@ -18,6 +21,8 @@ const MAX_EMBEDDING_BODY_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STREAM_LINE_BYTES: usize = 1024 * 1024;
 const MAX_STREAM_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ANSWER_CHARS: usize = 20_000;
+const GENERATION_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+const GENERATION_TOTAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 async fn bounded_body(
     mut response: Response,
@@ -371,7 +376,7 @@ fn fail_generation(
         .execute(
             r#"
             UPDATE index_state
-            SET status = 'text_ready', embedding_model = NULL, vector_dimension = NULL,
+            SET status = 'failed', embedding_model = NULL, vector_dimension = NULL,
                 vector_count = 0, last_error = ?3, updated_at = ?4
             WHERE book_id = ?1 AND generation = ?2 AND status = 'embedding'
             "#,
@@ -565,6 +570,21 @@ async fn index_book_with_models(
                 return Err(error);
             }
         };
+        if work
+            .chunks
+            .len()
+            .checked_mul(dimension)
+            .and_then(|values| values.checked_mul(size_of::<f32>()))
+            .is_none_or(|bytes| bytes > MAX_EMBEDDING_BYTES_PER_BOOK)
+        {
+            fail_generation(
+                state,
+                book_id,
+                work.generation,
+                "This book is too large for semantic indexing; keyword search remains ready.",
+            )?;
+            return Ok(false);
+        }
         vector_dimension = Some(dimension);
         if let Err(error) =
             store_embedding_batch(state, book_id, work.generation, batch, &embeddings)
@@ -598,6 +618,7 @@ async fn index_book_with_models(
 }
 
 pub async fn index_book(state: &AppState, book_id: &str) -> AppResult<bool> {
+    let _claim = state.claim_indexing(book_id)?;
     let models = match installed_models(state).await {
         Ok(models) => models,
         Err(_) => {
@@ -652,9 +673,14 @@ pub async fn retry_pending_indexes(state: AppState) -> AppResult<()> {
             .acquire_owned()
             .await
             .map_err(|_| AppError::new(AppErrorKind::Internal, "AI work is unavailable."))?;
+        let claim = match state.claim_indexing(&book_id) {
+            Ok(claim) => claim,
+            Err(_) => continue,
+        };
         if let Err(error) = index_book_with_models(&state, &book_id, &models).await {
             tracing::warn!(book_id, kind = ?error.kind, "startup index retry failed");
         }
+        drop(claim);
         drop(permit);
     }
     Ok(())
@@ -664,12 +690,13 @@ pub async fn generate_stream<F>(
     state: &AppState,
     prompt: &str,
     system: &str,
+    cancellation: &CancellationToken,
     mut on_delta: F,
 ) -> AppResult<String>
 where
     F: FnMut(String) -> AppResult<()>,
 {
-    let mut response = state
+    let request = state
         .generation_http
         .post(format!("{OLLAMA_BASE_URL}/api/generate"))
         .json(&json!({
@@ -679,12 +706,17 @@ where
             "stream": true,
             "options": { "temperature": 0.3 }
         }))
-        .send()
-        .await
+        .send();
+    let mut response = tokio::select! {
+        _ = cancellation.cancelled() => {
+            return Err(AppError::ai_request("The AI request was cancelled."));
+        }
+        response = request => response
         .map_err(|error| {
             tracing::debug!(%error, "Ollama generation unavailable");
             AppError::ai_unavailable("The configured generation model is unavailable.")
-        })?;
+        })?,
+    };
     if response.status() != StatusCode::OK {
         tracing::warn!(status = %response.status(), "Ollama generation failed");
         return Err(AppError::ai_unavailable(
@@ -694,10 +726,26 @@ where
 
     let mut pending = Vec::<u8>::new();
     let mut stream = GenerationStream::default();
-    while let Some(bytes) = response.chunk().await.map_err(|error| {
-        tracing::error!(%error, "failed to read Ollama stream");
-        AppError::ai_request("The AI response stream was interrupted.")
-    })? {
+    let started = Instant::now();
+    loop {
+        let remaining = GENERATION_TOTAL_TIMEOUT
+            .checked_sub(started.elapsed())
+            .ok_or_else(|| AppError::ai_request("The AI response timed out."))?;
+        let wait = remaining.min(GENERATION_IDLE_TIMEOUT);
+        let next = tokio::select! {
+            _ = cancellation.cancelled() => {
+                return Err(AppError::ai_request("The AI request was cancelled."));
+            }
+            result = tokio::time::timeout(wait, response.chunk()) => result
+                .map_err(|_| AppError::ai_request("The AI response timed out."))?
+                .map_err(|error| {
+                    tracing::error!(%error, "failed to read Ollama stream");
+                    AppError::ai_request("The AI response stream was interrupted.")
+                })?,
+        };
+        let Some(bytes) = next else {
+            break;
+        };
         stream.add_bytes(bytes.len())?;
         if stream.done && !bytes.is_empty() {
             return Err(AppError::ai_request(
@@ -922,6 +970,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(remaining, 0);
-        assert_eq!(status, "text_ready");
+        assert_eq!(status, "failed");
     }
 }

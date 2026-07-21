@@ -44,7 +44,8 @@ The TypeScript wrappers in `frontend/src/lib/commands.ts` are the frontend bound
 | `delete_book` | Confirm deletion, remove database rows, and clean files. |
 | `get_ai_status` | Report Ollama, model, and per-book index readiness. |
 | `reindex_book` | Rebuild semantic embeddings for one book. |
-| `ask_book` | Retrieve passages and stream a local Ollama answer over a channel. |
+| `ask_book` | Retrieve passages and stream a cancellable local Ollama answer over a channel. |
+| `cancel_ai_request` | Cancel one active answer by its unguessable request identifier. |
 
 Errors crossing this boundary contain a stable kind and a user-safe message. Detailed parser, database, filesystem, and model errors remain in Rust logs.
 
@@ -61,7 +62,7 @@ Errors crossing this boundary contain a stable kind and a user-safe message. Det
 7. Generated files are published to a new UUID book directory.
 8. Metadata, chapters, progress, chunks, FTS rows, and index state are inserted in SQLite.
 9. A failed database write rolls the published directory back. A successful write commits it.
-10. Semantic indexing is attempted after import. Failure leaves FTS data and reading available.
+10. Semantic indexing starts in the background after import returns. Failure leaves FTS data and reading available.
 
 The parser works only from the immutable staged copy. Duplicate detection uses the staged content hash, so changes to the original selected path cannot alter the book after validation.
 
@@ -69,7 +70,7 @@ The parser works only from the immutable staged copy. Duplicate detection uses t
 
 Each chapter has a stable UUID, a normalized text length, and an absolute half-open location range. The frontend maps rendered visible text back to these locations rather than using scroll pixels as the persistent position.
 
-`ReaderContent.svelte` restores a saved location, reports new visible-text positions, resolves local chapter assets through Rust, and supports chapter and viewport navigation. `Reader.svelte` places updates in a latest-wins save queue. It flushes the pending position before returning to the library and retains a failed update for retry.
+`ReaderContent.svelte` restores a saved location, reports new visible-text positions, resolves local chapter assets through Rust, and supports chapter and viewport navigation. `Reader.svelte` places updates in a latest-wins save queue. It flushes the pending position before returning to the library or accepting a native window close and retains a failed update for retry.
 
 Reader appearance settings are local frontend preferences stored under `mereader.reader-settings.v1`. They currently include theme, font size, line height, and reading width.
 
@@ -89,10 +90,10 @@ For a question, the core:
 2. Applies the persisted reading location as the retrieval boundary.
 3. Runs bounded FTS retrieval.
 4. Runs bounded cosine retrieval when a compatible semantic index is ready.
-5. Combines candidates with reciprocal-rank fusion and removes duplicates.
+5. Combines candidates with reciprocal-rank fusion and removes text duplicates.
 6. Builds a prompt from source passages at or before the reading boundary.
 7. Streams answer deltas to the frontend through a Tauri channel.
-8. Returns the final answer, source metadata, and the boundary used.
+8. Rejects missing or invented citation markers, then returns the final answer, source metadata, and the boundary used.
 
 If semantic search is unavailable, questions can still use keyword retrieval when the generation model is installed. If Ollama or the generation model is unavailable, reading remains unaffected and the AI panel reports the concrete recovery action.
 
@@ -115,7 +116,7 @@ app-data/
   trash/
 ```
 
-`staging/` and `trash/` are cleaned at startup. Managed directory components must be real directories, not symbolic links.
+`staging/` and `trash/` are reconciled and cleaned at startup. Managed directory components must be real directories, not symbolic links. On Unix, application directories are owner-only and stored files are owner-readable and owner-writable only.
 
 SQLite uses foreign keys, WAL journaling, a busy timeout, and embedded migrations. Its main tables are:
 
@@ -129,7 +130,7 @@ SQLite uses foreign keys, WAL journaling, a busy timeout, and embedded migration
 | `index_state` | Per-book embedding model, generation, dimensions, status, and errors. |
 | `settings` | Persisted core model defaults reserved for application settings. |
 
-Book deletion first moves managed files into `trash/`, then removes database rows. A database failure restores the files. A cleanup failure is deferred to the next startup.
+Book deletion first commits a durable deletion journal, moves managed files into `trash/`, then atomically removes database rows and the journal entry. A database failure restores the files and clears the journal. Startup completes interrupted journaled deletions, removes orphaned import directories, removes rows whose files are missing, and retries deferred cleanup without blocking the application on an undeletable trash entry.
 
 ## 8. Trust Boundaries
 
@@ -141,16 +142,16 @@ EPUB protections include:
 - ZIP path traversal, archive-count, size, ratio, and expansion limits.
 - Limits on spine chapters, assets, text length, chunks, image dimensions, image pixels, and generated bytes.
 - HTML sanitization with no scripts, forms, frames, remote media, or arbitrary local paths.
-- Decoding and bounding of supported JPEG, PNG, GIF, and WebP assets before storage.
+- Decoding and bounding of supported JPEG, PNG, single-frame GIF, and WebP assets before storage.
 - UUID validation and canonical parent checks before managed file reads.
 - Symbolic-link rejection for managed directories and files.
 
 Ollama protections include:
 
-- Fixed loopback endpoint, no proxy use, no redirects, and connection timeouts.
+- Fixed loopback endpoint, no proxy use, no redirects, and connection, idle, and total generation timeouts.
 - Bounded response bodies and streamed line lengths.
 - Strict embedding count, dimension, finite-value, and model-generation checks.
-- Bounded concurrent imports and AI operations.
+- Bounded concurrent imports and AI operations, one semantic index build per book, cancellable answers, and a per-book embedding storage budget.
 
 The webview content security policy denies frames, objects, forms, arbitrary connections, and remote scripts.
 
@@ -175,9 +176,9 @@ The desktop layout keeps navigation, reading controls, and the AI panel separate
 
 ## 10. Verification Strategy
 
-Rust unit tests cover database migrations and constraints, import validation and rollback, archive limits, HTML and image sanitization, storage safety, progress boundaries, hybrid retrieval, vector validation, Ollama response bounds, and command behavior. The import suite generates a complete EPUB archive in the test itself so it does not depend on an opaque binary fixture.
+Rust unit tests cover database migrations and constraints, deletion-journal recovery, orphan reconciliation, import validation and rollback, archive limits, HTML and image sanitization, storage permissions, progress boundaries, hybrid retrieval, vector validation, Ollama response bounds, citation validation, index-state behavior, and command behavior. The import suite generates a complete EPUB archive in the test itself so it does not depend on an opaque binary fixture.
 
-Frontend tests cover IPC wrappers, library states, reader navigation, progress persistence, text anchors, AI streaming and recovery, source jumps, and application transitions. `svelte-check`, Vite production builds, strict Clippy, Rust formatting, and Rust compilation are separate required gates.
+Frontend tests cover IPC wrappers, library states, reader and keyboard navigation, close-time progress persistence, resilient chapter assets, text anchors, AI streaming, cancellation and recovery, source jumps, and application transitions. `svelte-check`, Vite production builds, strict Clippy, Rust formatting, Rust compilation, and a Debian bundle are enforced in CI.
 
 The verified Linux packaging path is a debug Debian bundle. AppImage creation also depends on the host `linuxdeploy` environment and is not treated as a source-code verification gate.
 

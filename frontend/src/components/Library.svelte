@@ -123,6 +123,7 @@
       const url = URL.createObjectURL(new Blob([new Uint8Array(cover.data)], { type: cover.mimeType }));
       coverUrls = { ...coverUrls, [bookId]: url };
     } catch {
+      requestedCovers.delete(bookId);
       // A missing cover is represented by the deterministic title placeholder.
     }
   }

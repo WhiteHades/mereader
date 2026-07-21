@@ -11,6 +11,8 @@ MeReader is a private desktop EPUB reader with progress-aware local AI. The app 
 - Restrict retrieval to text at or before the current reading position to reduce spoilers.
 - Use SQLite FTS5 when semantic embeddings are unavailable.
 - Delete a book and its generated data through a native confirmation flow.
+- Recover interrupted imports and deletions on the next launch.
+- Cancel active AI answers and preserve pending progress before native window close.
 
 MeReader does not run an application web server. The Svelte interface calls the embedded Rust core through Tauri IPC. Ollama is the only optional external process, and it is contacted directly on loopback.
 
@@ -29,6 +31,8 @@ ollama pull nomic-embed-text:latest
 ```
 
 The reader remains usable without Ollama. AI answers require the generation model. If that model is installed but the embedding model is not, questions fall back to keyword-only grounding.
+
+The repository pins its verified Rust toolchain in `rust-toolchain.toml`.
 
 ## Development
 
@@ -95,7 +99,7 @@ The repository intentionally keeps the exported paper PDFs but not TeX, BibTeX, 
 
 ## Data and Privacy
 
-MeReader stores its SQLite database, imported books, sanitized chapters, and generated assets in the operating system application-data directory selected by Tauri. Import staging and deletion trash are cleaned during startup.
+MeReader stores its SQLite database, imported books, sanitized chapters, generated assets, and bounded diagnostic logs in the operating system application-data directory selected by Tauri. On Unix, existing and newly created application data is restricted to the current user. Interrupted imports and deletions are reconciled before deferred staging or trash cleanup.
 
 No book content is sent to a cloud service by the application. When AI is enabled, relevant passages are sent only to the local Ollama service at `http://127.0.0.1:11434`.
 

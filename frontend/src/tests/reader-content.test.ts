@@ -119,4 +119,64 @@ describe('ReaderContent text-position tracking', () => {
     await new Promise((resolve) => window.setTimeout(resolve, 10));
     expect(onPositionChange).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps chapter text readable when one image cannot be loaded', async () => {
+    const chapters: ChapterSummary[] = [
+      { id: 'chapter-1', title: 'Illustrated', order: 0, startLocation: 0, endLocation: 12 },
+    ];
+    mocks.getChapter.mockResolvedValue({
+      chapterId: 'chapter-1',
+      title: 'Illustrated',
+      html: `<img alt="Missing" src="assets/${assetName}"><p>Readable text</p>`,
+      startLocation: 0,
+      endLocation: 12,
+    });
+    mocks.getChapterAsset.mockRejectedValue(new Error('asset unavailable'));
+
+    render(ReaderContent, {
+      bookId: 'book-1',
+      chapters,
+      initialLocation: 0,
+      initialChapterId: 'chapter-1',
+      settings,
+      onPositionChange: vi.fn(),
+      onChapterChange: vi.fn(),
+    });
+
+    expect(await screen.findByText('Readable text')).toBeTruthy();
+    expect(screen.getByAltText('Missing').hasAttribute('src')).toBe(false);
+  });
+
+  it('flushes a scheduled scroll position synchronously for native close', async () => {
+    const chapters: ChapterSummary[] = [
+      { id: 'chapter-1', title: 'Closing', order: 0, startLocation: 0, endLocation: 11 },
+    ];
+    const onPositionChange = vi.fn();
+    mocks.getChapter.mockResolvedValue({
+      chapterId: 'chapter-1',
+      title: 'Closing',
+      html: '<p>Final words</p>',
+      startLocation: 0,
+      endLocation: 11,
+    });
+    vi.spyOn(Range.prototype, 'getClientRects').mockReturnValue([
+      domRect(20, 40),
+    ] as unknown as DOMRectList);
+    const view = render(ReaderContent, {
+      bookId: 'book-1',
+      chapters,
+      initialLocation: 0,
+      initialChapterId: 'chapter-1',
+      settings,
+      onPositionChange,
+      onChapterChange: vi.fn(),
+    });
+    const scroller = await screen.findByRole('region', { name: 'Closing' });
+    vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue(domRect(0, 500));
+
+    await fireEvent.scroll(scroller);
+    view.component.flushPosition();
+
+    expect(onPositionChange).toHaveBeenCalledWith({ location: 11, chapterId: 'chapter-1' });
+  });
 });

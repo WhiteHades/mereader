@@ -50,6 +50,8 @@ export interface AiStatus {
   indexedThroughLocation?: number;
   totalLocations?: number;
   available?: boolean;
+  generationModel?: string;
+  embeddingModel?: string;
   generationModelAvailable?: boolean;
   embeddingModelAvailable?: boolean;
   indexedBooks?: number;
@@ -75,6 +77,9 @@ export interface ProgressBoundary {
 
 export interface AnswerResponse {
   answer: string;
+  question?: string;
+  bookId?: string;
+  bookTitle?: string;
   sources: SourcePassage[];
   progressBoundary: ProgressBoundary | null;
 }

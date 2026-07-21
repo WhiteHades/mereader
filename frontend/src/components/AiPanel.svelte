@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { askBook, errorMessage, getAiStatus, reindexBook } from '../lib/commands';
+  import { onDestroy, onMount } from 'svelte';
+  import { askBook, cancelAiRequest, errorMessage, getAiStatus, reindexBook } from '../lib/commands';
   import type { AiEvent, AiStatus, AnswerResponse, SourcePassage } from '../lib/types';
 
   interface Props {
@@ -28,6 +28,7 @@
   let sourcesOpen = $state(true);
   let reindexing = $state(false);
   let reindexError = $state('');
+  let activeRequestId: string | null = null;
 
   let canAsk = $derived(status !== null && status.state !== 'unavailable');
   let canReindex = $derived(
@@ -42,8 +43,16 @@
   );
   let answerSegments = $derived(answer ? parseAnswer(answer) : []);
 
+  $effect(() => {
+    if (!open) void cancelCurrentRequest();
+  });
+
   onMount(() => {
     void refreshStatus();
+  });
+
+  onDestroy(() => {
+    void cancelCurrentRequest();
   });
 
   export function focusPanel(): void {
@@ -73,10 +82,12 @@
     streamStatus = 'Finding grounded passages';
     queryError = '';
     asking = true;
+    const requestId = crypto.randomUUID();
+    activeRequestId = requestId;
     let completedFromEvent: AnswerResponse | null = null;
 
     try {
-      const returned = await askBook(bookId, nextQuestion, (aiEvent) => {
+      const returned = await askBook(bookId, requestId, nextQuestion, (aiEvent) => {
         completedFromEvent = handleEvent(aiEvent);
       });
       const completed: AnswerResponse = completedFromEvent ?? returned;
@@ -87,8 +98,24 @@
     } catch (error) {
       queryError = errorMessage(error);
     } finally {
+      if (activeRequestId === requestId) activeRequestId = null;
       asking = false;
     }
+  }
+
+  async function cancelCurrentRequest(): Promise<void> {
+    const requestId = activeRequestId;
+    if (!requestId) return;
+    try {
+      await cancelAiRequest(requestId);
+    } catch {
+      // The request's own result reports cancellation and transport failures.
+    }
+  }
+
+  function closePanel(): void {
+    void cancelCurrentRequest();
+    onClose();
   }
 
   function handleEvent(event: AiEvent): AnswerResponse | null {
@@ -113,6 +140,15 @@
   function retryQuestion(): void {
     question = previousQuestion;
     void submit();
+  }
+
+  function clearAnswer(): void {
+    question = '';
+    previousQuestion = '';
+    answer = null;
+    streamDraft = '';
+    streamStatus = '';
+    queryError = '';
   }
 
   async function reindex(): Promise<void> {
@@ -160,7 +196,7 @@
     const methods = source.retrievalMethods.map((method) =>
       method === 'vector'
         ? 'Vector'
-        : method === 'keyword'
+        : method === 'keyword' || method === 'fts'
           ? 'Keyword'
           : `${method.slice(0, 1).toLocaleUpperCase()}${method.slice(1)}`
     );
@@ -192,7 +228,7 @@
       <p class="eyebrow">Local book assistant</p>
       <h2 id="ai-panel-title">Ask MeReader</h2>
     </div>
-    <button class="icon-button" onclick={onClose} aria-label="Close AI panel">Close</button>
+    <button class="icon-button" onclick={closePanel} aria-label="Close AI panel">Close</button>
   </header>
 
   <div class="ai-body">
@@ -268,6 +304,9 @@
         ></textarea>
         <div class="form-actions">
           <span>Ctrl/Command + Enter</span>
+          {#if asking}
+            <button class="button quiet" type="button" onclick={cancelCurrentRequest}>Stop</button>
+          {/if}
           <button class="button primary" type="submit" disabled={asking || !question.trim()}>
             {asking ? 'Answering...' : 'Ask'}
           </button>
@@ -294,6 +333,7 @@
 
     {#if answer}
       <section class="answer" aria-label="AI answer">
+        <button class="text-button" type="button" onclick={clearAnswer}>Clear answer</button>
         <p class="answer-copy">
           {#each answerSegments as segment, index (`${segment.type}-${index}`)}
             {#if segment.type === 'citation'}

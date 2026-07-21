@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Tauri system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Verify frontend
+        run: npm test && npm run test:coverage && npm run check && npm run build && npm audit --audit-level=moderate
+        working-directory: frontend
+      - name: Verify Rust
+        run: cargo fmt --check && cargo test --all-targets && cargo clippy --all-targets --all-features -- -D warnings && cargo check --all-targets
+        working-directory: frontend/src-tauri
+      - name: Audit Rust dependencies
+        run: cargo install cargo-audit --locked && cargo audit
+        working-directory: frontend/src-tauri
+      - name: Build Debian package
+        run: npm run tauri -- build --bundles deb
+        working-directory: frontend

@@ -6,12 +6,14 @@ import type { AiEvent, AnswerResponse } from '../lib/types';
 const mocks = vi.hoisted(() => ({
   getAiStatus: vi.fn(),
   askBook: vi.fn(),
+  cancelAiRequest: vi.fn(),
   reindexBook: vi.fn(),
 }));
 
 vi.mock('../lib/commands', () => ({
   getAiStatus: mocks.getAiStatus,
   askBook: mocks.askBook,
+  cancelAiRequest: mocks.cancelAiRequest,
   reindexBook: mocks.reindexBook,
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
@@ -43,13 +45,19 @@ describe('AiPanel', () => {
   beforeEach(() => {
     mocks.getAiStatus.mockResolvedValue({ state: 'ready', embeddingModelAvailable: true });
     mocks.reindexBook.mockResolvedValue({ state: 'ready', embeddingModelAvailable: true });
+    mocks.cancelAiRequest.mockResolvedValue(true);
   });
 
   it('shows streamed deltas, the boundary, and reopenable source disclosure', async () => {
     const returned = deferred<AnswerResponse>();
     const onJumpToSource = vi.fn();
     mocks.askBook.mockImplementation(
-      async (_bookId: string, _question: string, onEvent: (event: AiEvent) => void) => {
+      async (
+        _bookId: string,
+        _requestId: string,
+        _question: string,
+        onEvent: (event: AiEvent) => void,
+      ) => {
         onEvent({ type: 'status', message: 'Reading indexed passages' });
         onEvent({ type: 'delta', delta: 'Streaming words' });
         return returned.promise;
@@ -81,6 +89,10 @@ describe('AiPanel', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Jump to source S1 at location 72' }));
     expect(onJumpToSource).toHaveBeenCalledWith(response.sources[0]);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Clear answer' }));
+    expect(screen.queryByLabelText('AI answer')).toBeNull();
+    expect((input as HTMLTextAreaElement).value).toBe('');
   });
 
   it('uses the returned non-streaming answer and keeps it after retry failure', async () => {
@@ -156,5 +168,54 @@ describe('AiPanel', () => {
     const answerCopy = screen.getByLabelText('AI answer');
     expect(answerCopy.textContent).toContain('unknown [S2], padded [S01], and <em>literal</em>.');
     expect(answerCopy.querySelector('em')).toBeNull();
+  });
+
+  it('cancels the active native request when stopped', async () => {
+    const returned = deferred<AnswerResponse>();
+    let requestId = '';
+    mocks.askBook.mockImplementation(
+      async (_bookId: string, id: string) => {
+        requestId = id;
+        return returned.promise;
+      },
+    );
+    render(AiPanel, { bookId: 'book-1', open: true, onClose: vi.fn(), onJumpToSource: vi.fn() });
+
+    const input = await screen.findByLabelText('Question about this book');
+    await fireEvent.input(input, { target: { value: 'Stop this request' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+
+    expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(mocks.cancelAiRequest).toHaveBeenCalledWith(requestId);
+    returned.resolve(response);
+  });
+
+  it('cancels an active request when any parent close path hides the panel', async () => {
+    const returned = deferred<AnswerResponse>();
+    let requestId = '';
+    mocks.askBook.mockImplementation(async (_bookId: string, id: string) => {
+      requestId = id;
+      return returned.promise;
+    });
+    const view = render(AiPanel, {
+      bookId: 'book-1',
+      open: true,
+      onClose: vi.fn(),
+      onJumpToSource: vi.fn(),
+    });
+    const input = await screen.findByLabelText('Question about this book');
+    await fireEvent.input(input, { target: { value: 'Hide the panel' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    await view.rerender({
+      bookId: 'book-1',
+      open: false,
+      onClose: vi.fn(),
+      onJumpToSource: vi.fn(),
+    });
+
+    await waitFor(() => expect(mocks.cancelAiRequest).toHaveBeenCalledWith(requestId));
+    returned.resolve(response);
   });
 });

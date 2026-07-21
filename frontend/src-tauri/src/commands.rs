@@ -1,9 +1,11 @@
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::content;
@@ -35,6 +37,17 @@ fn semaphore_error() -> AppError {
         AppErrorKind::Internal,
         "The operation queue is unavailable.",
     )
+}
+
+struct AiRequestGuard {
+    state: AppState,
+    request_id: String,
+}
+
+impl Drop for AiRequestGuard {
+    fn drop(&mut self) {
+        self.state.finish_ai_request(&self.request_id);
+    }
 }
 
 fn chapter_asset_path(
@@ -94,7 +107,25 @@ fn read_regular_file(path: &Path, expected_parent: &Path, maximum: u64) -> AppRe
     if canonical_path.parent() != Some(canonical_parent.as_path()) {
         return Err(AppError::storage());
     }
-    fs::read(canonical_path).map_err(|_| AppError::storage())
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options
+        .open(canonical_path)
+        .map_err(|_| AppError::storage())?;
+    let mut data = Vec::with_capacity(metadata.len() as usize);
+    file.by_ref()
+        .take(maximum + 1)
+        .read_to_end(&mut data)
+        .map_err(|_| AppError::storage())?;
+    if data.len() as u64 > maximum {
+        return Err(AppError::storage());
+    }
+    Ok(data)
 }
 
 fn read_chapter_asset(root: &Path, book_id: &str, asset_name: &str) -> AppResult<CoverData> {
@@ -121,15 +152,22 @@ fn delete_persisted_book(
     let trash_path = root
         .join(storage::TRASH_DIR)
         .join(Uuid::new_v4().to_string());
+    let trash_name = trash_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(AppError::storage)?;
+    db::begin_book_deletion(connection, book_id, trash_name)?;
     fs::rename(&book_dir, &trash_path).map_err(|error| {
         tracing::error!(%error, "failed to move book files into trash");
+        let _ = db::cancel_book_deletion(connection, book_id);
         AppError::storage()
     })?;
-    if let Err(error) = db::delete_book_rows(connection, book_id) {
+    if let Err(error) = db::complete_book_deletion(connection, book_id) {
         if let Err(restore_error) = fs::rename(&trash_path, &book_dir) {
             tracing::error!(%restore_error, "failed to restore book files after database rollback");
             return Err(AppError::storage());
         }
+        db::cancel_book_deletion(connection, book_id)?;
         return Err(error);
     }
     if let Err(error) = storage::remove_path(&trash_path) {
@@ -228,15 +266,16 @@ pub async fn import_book(
     .await
     .map_err(join_error)??;
 
-    let _ai_permit = state
-        .ai_slots
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|_| semaphore_error())?;
-    if let Err(error) = ollama::index_book(&state, &summary.id).await {
-        tracing::warn!(book_id = %summary.id, kind = ?error.kind, "post-import indexing failed");
-    }
+    let index_state = state.clone();
+    let index_book_id = summary.id.clone();
+    tauri::async_runtime::spawn(async move {
+        let Ok(_ai_permit) = index_state.ai_slots.clone().acquire_owned().await else {
+            return;
+        };
+        if let Err(error) = ollama::index_book(&index_state, &index_book_id).await {
+            tracing::warn!(book_id = %index_book_id, kind = ?error.kind, "post-import indexing failed");
+        }
+    });
     Ok(Some(summary))
 }
 
@@ -473,6 +512,14 @@ fn build_ai_status(
                 state.generation_model
             )),
         )
+    } else if index.status == "embedding" {
+        (
+            "indexing",
+            Some(
+                "Keyword grounding remains available while semantic passages are prepared."
+                    .to_owned(),
+            ),
+        )
     } else if index.status == "failed" {
         (
             "error",
@@ -494,7 +541,11 @@ fn build_ai_status(
     AiStatus {
         state: status.to_owned(),
         message,
-        indexed_through_location: Some(index.total_locations),
+        indexed_through_location: Some(if index.status == "embedding" {
+            0
+        } else {
+            index.total_locations
+        }),
         total_locations: Some(index.total_locations),
         available: generation_model_available,
         generation_model: state.generation_model.clone(),
@@ -507,7 +558,7 @@ fn build_ai_status(
             .map(|model| model.name.clone())
             .collect(),
         indexed_books: u64::from(semantic_ready),
-        text_only_books: u64::from(index.status != "failed" && !semantic_ready),
+        text_only_books: u64::from(matches!(index.status.as_str(), "text_ready" | "embedding")),
         failed_books: u64::from(index.status == "failed"),
     }
 }
@@ -586,11 +637,13 @@ const RAG_SYSTEM_PROMPT: &str = "You are MeReader's book-bound reading assistant
 #[tauri::command]
 pub async fn ask_book(
     book_id: String,
+    request_id: String,
     question: String,
     on_event: Channel<AnswerEvent>,
     state: State<'_, AppState>,
 ) -> AppResult<AnswerResponse> {
     let book_id = storage::validated_uuid(&book_id, "The book identifier is invalid.")?;
+    let request_id = storage::validated_uuid(&request_id, "The AI request identifier is invalid.")?;
     let question = question.trim().to_owned();
     if question.is_empty() || question.chars().count() > 2_000 {
         return Err(AppError::invalid(
@@ -598,13 +651,19 @@ pub async fn ask_book(
         ));
     }
     let state = state.inner().clone();
-    let _permit = state
-        .ai_slots
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|_| semaphore_error())?;
-    let result = ask_book_inner(&state, &book_id, &question, &on_event).await;
+    let cancellation = state.register_ai_request(&request_id)?;
+    let _request = AiRequestGuard {
+        state: state.clone(),
+        request_id,
+    };
+    let permit = state.ai_slots.clone().acquire_owned();
+    let _permit = tokio::select! {
+        _ = cancellation.cancelled() => {
+            return Err(AppError::ai_request("The AI request was cancelled."));
+        }
+        permit = permit => permit.map_err(|_| semaphore_error())?,
+    };
+    let result = ask_book_inner(&state, &book_id, &question, &on_event, &cancellation).await;
     if let Err(error) = &result {
         let _ = on_event.send(AnswerEvent::Error {
             message: error.message.clone(),
@@ -613,11 +672,18 @@ pub async fn ask_book(
     result
 }
 
+#[tauri::command]
+pub async fn cancel_ai_request(request_id: String, state: State<'_, AppState>) -> AppResult<bool> {
+    let request_id = storage::validated_uuid(&request_id, "The AI request identifier is invalid.")?;
+    state.cancel_ai_request(&request_id)
+}
+
 async fn ask_book_inner(
     state: &AppState,
     book_id: &str,
     question: &str,
     on_event: &Channel<AnswerEvent>,
+    cancellation: &CancellationToken,
 ) -> AppResult<AnswerResponse> {
     send_event(
         on_event,
@@ -625,7 +691,12 @@ async fn ask_book_inner(
             message: "Checking installed models".to_owned(),
         },
     )?;
-    let models = ollama::installed_models(state).await?;
+    let models = tokio::select! {
+        _ = cancellation.cancelled() => {
+            return Err(AppError::ai_request("The AI request was cancelled."));
+        }
+        models = ollama::installed_models(state) => models?,
+    };
     if !ollama::model_is_installed(&models, &state.generation_model) {
         return Err(AppError::ai_unavailable(
             "The configured generation model is not installed.",
@@ -643,10 +714,15 @@ async fn ask_book_inner(
         },
     )?;
     let query_embedding = if ollama::model_is_installed(&models, &state.embedding_model) {
-        ollama::embed_texts(state, &[question.to_owned()], None)
-            .await
-            .ok()
-            .and_then(|mut embeddings| embeddings.pop())
+        let embedding_input = [question.to_owned()];
+        tokio::select! {
+            _ = cancellation.cancelled() => {
+                return Err(AppError::ai_request("The AI request was cancelled."));
+            }
+            embeddings = ollama::embed_texts(state, &embedding_input, None) => {
+                embeddings.ok().and_then(|mut embeddings| embeddings.pop())
+            }
+        }
     } else {
         None
     };
@@ -656,7 +732,7 @@ async fn ask_book_inner(
     let embedding_model = state.embedding_model.clone();
     let location_boundary = progress.current_location;
     let (book_title, sources) = tokio::task::spawn_blocking(move || {
-        let connection = retrieval_state.lock_db()?;
+        let connection = retrieval_state.open_read_db()?;
         retrieval::retrieve(
             &connection,
             &retrieval_book_id,
@@ -698,10 +774,12 @@ async fn ask_book_inner(
         },
     )?;
     let prompt = rag_prompt(question, &sources, location_boundary);
-    let answer = ollama::generate_stream(state, &prompt, RAG_SYSTEM_PROMPT, |delta| {
-        send_event(on_event, AnswerEvent::Delta { delta })
-    })
-    .await?;
+    let answer =
+        ollama::generate_stream(state, &prompt, RAG_SYSTEM_PROMPT, cancellation, |delta| {
+            send_event(on_event, AnswerEvent::Delta { delta })
+        })
+        .await?;
+    validate_answer_citations(&answer, &sources)?;
     let response = AnswerResponse {
         answer,
         question: question.to_owned(),
@@ -720,6 +798,37 @@ async fn ask_book_inner(
         },
     )?;
     Ok(response)
+}
+
+fn validate_answer_citations(answer: &str, sources: &[SourcePassage]) -> AppResult<()> {
+    let allowed = sources
+        .iter()
+        .map(|source| source.citation_id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let mut remaining = answer;
+    let mut found = false;
+    while let Some(start) = remaining.find("[S") {
+        remaining = &remaining[start + 1..];
+        let Some(end) = remaining.find(']') else {
+            return Err(AppError::ai_request(
+                "The AI answer contained invalid citations.",
+            ));
+        };
+        let marker = &remaining[..end];
+        if !allowed.contains(marker) {
+            return Err(AppError::ai_request(
+                "The AI answer contained invalid citations.",
+            ));
+        }
+        found = true;
+        remaining = &remaining[end + 1..];
+    }
+    if !found {
+        return Err(AppError::ai_request(
+            "The AI answer could not be verified against its sources.",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -854,5 +963,49 @@ mod tests {
         assert_eq!(ready.failed_books, 0);
         assert_eq!(failed.state, "error");
         assert_eq!(failed.failed_books, 1);
+    }
+
+    #[test]
+    fn embedding_status_is_reported_as_indexing() {
+        let connection = migrated_connection();
+        insert_book(&connection, BOOK_A, "embedding");
+        let state = AppState::new(PathBuf::new(), connection).unwrap();
+        let models = vec![
+            crate::models::OllamaModel {
+                name: state.generation_model.clone(),
+                model: state.generation_model.clone(),
+            },
+            crate::models::OllamaModel {
+                name: state.embedding_model.clone(),
+                model: state.embedding_model.clone(),
+            },
+        ];
+
+        let status = build_ai_status(
+            &state,
+            read_book_index_status(&state, BOOK_A).unwrap(),
+            Some(&models),
+        );
+
+        assert_eq!(status.state, "indexing");
+        assert_eq!(status.text_only_books, 1);
+    }
+
+    #[test]
+    fn answer_citations_must_exist_and_cannot_be_omitted() {
+        let sources = vec![SourcePassage {
+            citation_id: "S1".to_owned(),
+            chapter_id: "chapter".to_owned(),
+            chapter_title: "Chapter".to_owned(),
+            text: "Evidence".to_owned(),
+            start_location: 0,
+            end_location: 8,
+            relevance_score: 1.0,
+            retrieval_methods: vec!["keyword".to_owned()],
+        }];
+
+        assert!(validate_answer_citations("Supported [S1].", &sources).is_ok());
+        assert!(validate_answer_citations("Unsupported [S2].", &sources).is_err());
+        assert!(validate_answer_citations("No source marker.", &sources).is_err());
     }
 }

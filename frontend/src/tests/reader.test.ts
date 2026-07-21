@@ -10,7 +10,17 @@ const mocks = vi.hoisted(() => ({
   updateProgress: vi.fn(),
   getAiStatus: vi.fn(),
   askBook: vi.fn(),
+  cancelAiRequest: vi.fn(),
   reindexBook: vi.fn(),
+  onCloseRequested: vi.fn(),
+  destroyWindow: vi.fn(),
+}));
+
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({
+    onCloseRequested: mocks.onCloseRequested,
+    destroy: mocks.destroyWindow,
+  }),
 }));
 
 vi.mock('../lib/commands', () => ({
@@ -20,6 +30,7 @@ vi.mock('../lib/commands', () => ({
   updateProgress: mocks.updateProgress,
   getAiStatus: mocks.getAiStatus,
   askBook: mocks.askBook,
+  cancelAiRequest: mocks.cancelAiRequest,
   reindexBook: mocks.reindexBook,
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
@@ -70,6 +81,9 @@ describe('Reader', () => {
     mocks.getAiStatus.mockResolvedValue({ state: 'ready' });
     mocks.reindexBook.mockResolvedValue({ state: 'ready' });
     mocks.askBook.mockResolvedValue({ answer: '', sources: [], progressBoundary: null });
+    mocks.cancelAiRequest.mockResolvedValue(true);
+    mocks.onCloseRequested.mockResolvedValue(() => {});
+    mocks.destroyWindow.mockResolvedValue(undefined);
   });
 
   it('waits for book progress before loading and restoring chapter content', async () => {
@@ -100,6 +114,46 @@ describe('Reader', () => {
     expect(onBack).not.toHaveBeenCalled();
     pendingSave.resolve(detail.progress);
     await waitFor(() => expect(onBack).toHaveBeenCalledTimes(1));
+  });
+
+  it('prevents native close until an in-flight position save finishes', async () => {
+    const pendingSave = deferred<typeof detail.progress>();
+    let closeHandler: ((event: { preventDefault: () => void }) => Promise<void>) | undefined;
+    mocks.onCloseRequested.mockImplementation(async (handler) => {
+      closeHandler = handler;
+      return () => {};
+    });
+    mocks.updateProgress.mockReturnValue(pendingSave.promise);
+    render(Reader, { bookId: 'book-1', onBack: vi.fn() });
+
+    await screen.findByRole('region', { name: 'Opening' });
+    await waitFor(() => expect(closeHandler).toBeTypeOf('function'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Next chapter' }));
+    await waitFor(() => expect(mocks.updateProgress).toHaveBeenCalled());
+    const preventDefault = vi.fn();
+    const closing = closeHandler!({ preventDefault });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(mocks.destroyWindow).not.toHaveBeenCalled();
+    pendingSave.resolve(detail.progress);
+    await closing;
+    expect(mocks.destroyWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores chapter and viewport keyboard navigation outside controls', async () => {
+    mocks.getChapter.mockImplementation(async (_bookId: string, chapterId: string) => ({
+      chapterId,
+      title: chapterId === 'chapter-1' ? 'Opening' : 'Ending',
+      html: `<p>${chapterId}</p>`,
+      startLocation: chapterId === 'chapter-1' ? 0 : 100,
+      endLocation: chapterId === 'chapter-1' ? 100 : 200,
+    }));
+    render(Reader, { bookId: 'book-1', onBack: vi.fn() });
+    await screen.findByRole('region', { name: 'Opening' });
+
+    await fireEvent.keyDown(window, { key: 'ArrowRight' });
+
+    await waitFor(() => expect(mocks.getChapter).toHaveBeenCalledWith('book-1', 'chapter-2'));
   });
 
   it('closes open panels with Escape and permits only one narrow drawer', async () => {

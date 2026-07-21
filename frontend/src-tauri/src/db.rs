@@ -12,6 +12,7 @@ use crate::limits::{
 };
 use crate::models::{BookDetail, BookList, BookSummary, ChapterContent, ChapterSummary, Progress};
 use crate::state::{DEFAULT_EMBEDDING_MODEL, DEFAULT_GENERATION_MODEL};
+use crate::storage;
 
 pub fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
@@ -96,6 +97,15 @@ pub fn migrations() -> Migrations<'static> {
             ALTER TABLE index_state ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
             "#,
         ),
+        M::up(
+            r#"
+            CREATE TABLE pending_deletions (
+                book_id TEXT PRIMARY KEY,
+                trash_name TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            );
+            "#,
+        ),
     ])
 }
 
@@ -118,10 +128,22 @@ pub fn configure_connection(connection: &Connection) -> AppResult<()> {
             tracing::error!(%error, "failed to enable SQLite WAL");
             AppError::database()
         })?;
+    connection
+        .pragma_update(None, "synchronous", "FULL")
+        .map_err(|error| {
+            tracing::error!(%error, "failed to enable durable SQLite synchronization");
+            AppError::database()
+        })?;
     Ok(())
 }
 
 pub fn open_database(path: &Path) -> AppResult<Connection> {
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            tracing::error!(path = %path.display(), "SQLite path is not a regular file");
+            return Err(AppError::storage());
+        }
+    }
     let mut connection = Connection::open(path).map_err(|error| {
         tracing::error!(%error, "failed to open SQLite database");
         AppError::database()
@@ -131,6 +153,19 @@ pub fn open_database(path: &Path) -> AppResult<Connection> {
         tracing::error!(%error, "failed to migrate SQLite database");
         AppError::database()
     })?;
+    storage::set_private_permissions(path, false)?;
+    for suffix in ["-wal", "-shm"] {
+        let companion = path.with_file_name(format!(
+            "{}{}",
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("library.sqlite3"),
+            suffix
+        ));
+        if companion.exists() {
+            storage::set_private_permissions(&companion, false)?;
+        }
+    }
     connection
         .execute(
             "INSERT OR IGNORE INTO settings(key, value) VALUES ('generation_model', ?1)",
@@ -617,12 +652,8 @@ pub fn update_progress(
     get_progress(connection, book_id)
 }
 
-pub fn delete_book_rows(connection: &mut Connection, book_id: &str) -> AppResult<()> {
-    let transaction = connection.transaction().map_err(|error| {
-        tracing::error!(%error, "failed to begin book deletion");
-        AppError::database()
-    })?;
-    let chunk_count = transaction
+fn delete_book_rows_in(connection: &Connection, book_id: &str) -> AppResult<()> {
+    let chunk_count = connection
         .query_row(
             "SELECT COUNT(*) FROM chunks WHERE book_id = ?1",
             [book_id],
@@ -633,7 +664,7 @@ pub fn delete_book_rows(connection: &mut Connection, book_id: &str) -> AppResult
             AppError::database()
         })?;
     bounded_count(chunk_count, MAX_CHUNKS_PER_BOOK)?;
-    transaction
+    connection
         .execute(
             "DELETE FROM chunks_fts WHERE rowid IN (SELECT id FROM chunks WHERE book_id = ?1)",
             [book_id],
@@ -642,19 +673,100 @@ pub fn delete_book_rows(connection: &mut Connection, book_id: &str) -> AppResult
             tracing::error!(%error, "failed to delete FTS rows");
             AppError::database()
         })?;
-    let changed = transaction
+    connection
         .execute("DELETE FROM books WHERE id = ?1", [book_id])
         .map_err(|error| {
             tracing::error!(%error, "failed to delete book row");
             AppError::database()
         })?;
-    if changed == 0 {
+    Ok(())
+}
+
+pub fn begin_book_deletion(
+    connection: &mut Connection,
+    book_id: &str,
+    trash_name: &str,
+) -> AppResult<()> {
+    let transaction = connection.transaction().map_err(|_| AppError::database())?;
+    let exists = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM books WHERE id = ?1)",
+            [book_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|_| AppError::database())?;
+    if !exists {
         return Err(AppError::not_found("Book not found."));
     }
+    transaction
+        .execute(
+            "INSERT INTO pending_deletions(book_id, trash_name, created_at) VALUES (?1, ?2, ?3)",
+            params![book_id, trash_name, Utc::now().to_rfc3339()],
+        )
+        .map_err(|error| {
+            tracing::error!(%error, "failed to journal book deletion");
+            AppError::database()
+        })?;
+    transaction.commit().map_err(|_| AppError::database())?;
+    Ok(())
+}
+
+pub fn cancel_book_deletion(connection: &Connection, book_id: &str) -> AppResult<()> {
+    connection
+        .execute(
+            "DELETE FROM pending_deletions WHERE book_id = ?1",
+            [book_id],
+        )
+        .map_err(|error| {
+            tracing::error!(%error, "failed to clear book deletion journal");
+            AppError::database()
+        })?;
+    Ok(())
+}
+
+pub fn complete_book_deletion(connection: &mut Connection, book_id: &str) -> AppResult<()> {
+    let transaction = connection.transaction().map_err(|_| AppError::database())?;
+    delete_book_rows_in(&transaction, book_id)?;
+    transaction
+        .execute(
+            "DELETE FROM pending_deletions WHERE book_id = ?1",
+            [book_id],
+        )
+        .map_err(|_| AppError::database())?;
     transaction.commit().map_err(|error| {
-        tracing::error!(%error, "failed to commit book deletion");
+        tracing::error!(%error, "failed to complete journaled book deletion");
         AppError::database()
     })?;
+    Ok(())
+}
+
+pub fn pending_deletions(connection: &Connection) -> AppResult<Vec<(String, String)>> {
+    let mut statement = connection
+        .prepare("SELECT book_id, trash_name FROM pending_deletions ORDER BY created_at")
+        .map_err(|_| AppError::database())?;
+    statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .and_then(Iterator::collect)
+        .map_err(|error| {
+            tracing::error!(%error, "failed to read deletion journal");
+            AppError::database()
+        })
+}
+
+pub fn book_ids(connection: &Connection) -> AppResult<Vec<String>> {
+    let mut statement = connection
+        .prepare("SELECT id FROM books ORDER BY id")
+        .map_err(|_| AppError::database())?;
+    statement
+        .query_map([], |row| row.get(0))
+        .and_then(Iterator::collect)
+        .map_err(|_| AppError::database())
+}
+
+pub fn remove_missing_book(connection: &mut Connection, book_id: &str) -> AppResult<()> {
+    let transaction = connection.transaction().map_err(|_| AppError::database())?;
+    delete_book_rows_in(&transaction, book_id)?;
+    transaction.commit().map_err(|_| AppError::database())?;
     Ok(())
 }
 
@@ -682,6 +794,7 @@ mod tests {
             "chunks_fts",
             "index_state",
             "settings",
+            "pending_deletions",
         ] {
             let exists: bool = connection
                 .query_row(
@@ -797,5 +910,40 @@ mod tests {
             )
             .unwrap();
         assert!(get_validated_progress(&connection, "book").is_err());
+    }
+
+    #[test]
+    fn deletion_journal_is_committed_with_book_removal() {
+        let mut connection = migrated_connection();
+        insert_progress_fixture(&connection);
+        begin_book_deletion(
+            &mut connection,
+            "book",
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        )
+        .unwrap();
+        assert_eq!(pending_deletions(&connection).unwrap().len(), 1);
+
+        complete_book_deletion(&mut connection, "book").unwrap();
+
+        assert!(pending_deletions(&connection).unwrap().is_empty());
+        assert!(book_ids(&connection).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn database_open_rejects_symbolic_links() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!("mereader-db-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("target.sqlite3");
+        Connection::open(&target).unwrap();
+        let link = root.join("library.sqlite3");
+        symlink(&target, &link).unwrap();
+
+        assert!(open_database(&link).is_err());
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

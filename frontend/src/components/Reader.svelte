@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onDestroy, onMount, tick } from 'svelte';
   import { errorMessage, getBook, updateProgress } from '../lib/commands';
   import { chapterContainsLocation, findChapterAtLocation } from '../lib/chapters';
@@ -27,6 +28,7 @@
     previousViewport: () => Promise<void>;
     nextViewport: () => Promise<void>;
     focusContent: () => void;
+    flushPosition: () => void;
   }
 
   interface AiPanelApi {
@@ -67,6 +69,7 @@
   let pendingPosition: ProgressPosition | null = null;
   let lastQueuedPosition: ProgressPosition | null = null;
   let saveTimer = 0;
+  let nativeCloseInProgress = false;
 
   let completion = $derived(
     detail?.totalLocations
@@ -89,11 +92,44 @@
   );
 
   $effect(() => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      // Reading remains available when preference storage is unavailable.
+    }
   });
 
   onMount(() => {
     void loadBook();
+  });
+
+  onMount(() => {
+    let unlisten: (() => void) | undefined;
+    let destroyed = false;
+    void getCurrentWindow().onCloseRequested(async (event) => {
+      event.preventDefault();
+      if (nativeCloseInProgress) return;
+      nativeCloseInProgress = true;
+      leaving = true;
+      try {
+        readerContent?.flushPosition();
+        commitPendingPosition();
+        await saveQueue.flush();
+        await getCurrentWindow().destroy();
+      } catch {
+        nativeCloseInProgress = false;
+        leaving = false;
+      }
+    }).then((stop) => {
+      if (destroyed) stop();
+      else unlisten = stop;
+    }).catch(() => {
+      // Browser-only tests and previews do not expose a native window.
+    });
+    return () => {
+      destroyed = true;
+      unlisten?.();
+    };
   });
 
   onMount(() => {
@@ -179,6 +215,7 @@
   async function handleBack(): Promise<void> {
     leaving = true;
     try {
+      readerContent?.flushPosition();
       commitPendingPosition();
       await saveQueue.flush();
       onBack();
@@ -279,7 +316,27 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Escape') return;
+    if (event.key !== 'Escape') {
+      const target = event.target;
+      if (
+        event.ctrlKey || event.metaKey || event.altKey ||
+        (target instanceof HTMLElement &&
+          target.matches('input, textarea, select, button, [contenteditable="true"]'))
+      ) return;
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        void readerContent?.nextChapter();
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        void readerContent?.previousChapter();
+      } else if (event.key === ' ') {
+        event.preventDefault();
+        void (event.shiftKey
+          ? readerContent?.previousViewport()
+          : readerContent?.nextViewport());
+      }
+      return;
+    }
     const panel = lastOpenedPanel && panelIsOpen(lastOpenedPanel)
       ? lastOpenedPanel
       : settingsOpen

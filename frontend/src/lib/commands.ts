@@ -61,12 +61,17 @@ export function reindexBook(bookId: string): Promise<AiStatus> {
 
 export function askBook(
   bookId: string,
+  requestId: string,
   question: string,
   onEvent: (event: AiEvent) => void,
 ): Promise<AnswerResponse> {
   const channel = new Channel<AiEvent>();
   channel.onmessage = onEvent;
-  return invoke<AnswerResponse>('ask_book', { bookId, question, onEvent: channel });
+  return invoke<AnswerResponse>('ask_book', { bookId, requestId, question, onEvent: channel });
+}
+
+export function cancelAiRequest(requestId: string): Promise<boolean> {
+  return invoke<boolean>('cancel_ai_request', { requestId });
 }
 
 export function errorMessage(error: unknown): string {

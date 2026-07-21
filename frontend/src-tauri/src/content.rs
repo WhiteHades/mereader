@@ -18,9 +18,9 @@ use zip::{CompressionMethod, ZipArchive};
 
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::limits::{
-    MAX_ARCHIVE_ENTRIES, MAX_ASSETS, MAX_CHUNKS_PER_BOOK, MAX_COMPRESSED_BYTES,
-    MAX_COMPRESSION_RATIO, MAX_ENTRY_BYTES, MAX_EXPANDED_BYTES, MAX_GENERATED_BYTES,
-    MAX_IMAGE_BYTES, MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS, MAX_LIBRARY_BOOKS,
+    MAX_ARCHIVE_ENTRIES, MAX_ASSETS, MAX_CHAPTER_HTML_BYTES, MAX_CHUNKS_PER_BOOK,
+    MAX_COMPRESSED_BYTES, MAX_COMPRESSION_RATIO, MAX_ENTRY_BYTES, MAX_EXPANDED_BYTES,
+    MAX_GENERATED_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS, MAX_LIBRARY_BOOKS,
     MAX_NORMALIZED_TEXT_CHARS, MAX_SPINE_CHAPTERS,
 };
 use crate::models::BookSummary;
@@ -140,6 +140,11 @@ struct BookBudget {
 
 impl BookBudget {
     fn add_chapter(&mut self, text_chars: usize, generated_bytes: usize) -> AppResult<()> {
+        if generated_bytes > MAX_CHAPTER_HTML_BYTES {
+            return Err(AppError::invalid_epub(
+                "An EPUB chapter is too large to display safely.",
+            ));
+        }
         self.chapters = self
             .chapters
             .checked_add(1)
@@ -202,6 +207,13 @@ pub fn validate_epub_path(path: &Path) -> AppResult<PathBuf> {
         != Some("epub".to_owned())
     {
         return Err(AppError::invalid("Only .epub files can be imported."));
+    }
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|_| AppError::invalid("The selected EPUB file could not be inspected."))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(AppError::invalid(
+            "The selected EPUB must be a regular file.",
+        ));
     }
     Ok(path.to_path_buf())
 }
@@ -327,7 +339,15 @@ fn preflight_epub_with_limits(path: &Path, limits: ArchiveLimits) -> AppResult<(
 fn copy_to_staging(root: &Path, source: &Path) -> AppResult<StagedEpub> {
     storage::validate_managed_directories(root)?;
     let source = validate_epub_path(source)?;
-    let mut input = File::open(&source)
+    let mut input_options = OpenOptions::new();
+    input_options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        input_options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut input = input_options
+        .open(&source)
         .map_err(|_| AppError::invalid("The selected EPUB file could not be opened."))?;
     let metadata = input
         .metadata()
@@ -344,6 +364,7 @@ fn copy_to_staging(root: &Path, source: &Path) -> AppResult<StagedEpub> {
         .write(true)
         .open(&staging_path)
         .map_err(|_| AppError::storage())?;
+    storage::set_private_permissions(&staging_path, false)?;
     let copy_result = (|| {
         let mut digest = Sha256::new();
         let mut total = 0_u64;
@@ -628,7 +649,7 @@ fn sanitized_html(
         ),
         ("time", ["datetime"].into_iter().collect()),
     ]);
-    let generic_attributes = ["dir", "lang", "title"].into_iter().collect();
+    let generic_attributes = ["dir", "id", "lang", "title"].into_iter().collect();
     let images = image_names.clone();
     let document_href = document_href.to_owned();
     let mut builder = Builder::new();
@@ -653,7 +674,10 @@ fn sanitized_html(
     builder.clean(raw_html).to_string()
 }
 
-fn first_heading(html: &str, fallback_order: u32) -> String {
+fn chapter_title(html: &str, toc_title: Option<&str>, fallback_order: u32) -> String {
+    if let Some(title) = toc_title.map(str::trim).filter(|title| !title.is_empty()) {
+        return title.chars().take(200).collect();
+    }
     for tag in ["h1", "h2", "h3", "h4", "h5", "h6"] {
         let open = format!("<{tag}");
         if let Some(start) = html.find(&open) {
@@ -799,6 +823,7 @@ fn parse_epub(
     content_length: u64,
 ) -> AppResult<ParsedBook> {
     fs::create_dir(book_dir.join("assets")).map_err(|_| AppError::storage())?;
+    storage::set_private_permissions(&book_dir.join("assets"), true)?;
     let stored_source = book_dir.join("source.epub");
     let book_rel_dir = format!("books/{id}");
     let source_rel_path = format!("{book_rel_dir}/source.epub");
@@ -879,6 +904,8 @@ fn parse_epub(
     let mut image_names = HashMap::new();
     let mut cover_rel_path = None;
     let mut cover_mime = None;
+    let mut named_cover = None;
+    let mut first_image = None;
     for image in epub.manifest().images() {
         let mime = image.media_type();
         let Some((extension, format, canonical_mime)) = image_type(mime) else {
@@ -902,13 +929,45 @@ fn parse_epub(
             .write(true)
             .open(book_dir.join("assets").join(&asset_name))
             .map_err(|_| AppError::storage())?;
+        storage::set_private_permissions(&book_dir.join("assets").join(&asset_name), false)?;
         file.write_all(&bytes).map_err(|_| AppError::storage())?;
+        file.sync_all().map_err(|_| AppError::storage())?;
 
         image_names.insert(encoded_href.clone(), asset_name.clone());
         image_names.insert(decoded_href, asset_name);
+        let candidate = (asset_rel_path.clone(), canonical_mime.to_owned());
+        if first_image.is_none() {
+            first_image = Some(candidate.clone());
+        }
+        if named_cover.is_none() && image.id().to_ascii_lowercase().contains("cover") {
+            named_cover = Some(candidate.clone());
+        }
         if cover_href.as_deref() == Some(&encoded_href) {
-            cover_rel_path = Some(asset_rel_path);
-            cover_mime = Some(canonical_mime.to_owned());
+            cover_rel_path = Some(candidate.0);
+            cover_mime = Some(candidate.1);
+        }
+    }
+    if cover_rel_path.is_none() {
+        if let Some((path, mime)) = named_cover.or(first_image) {
+            cover_rel_path = Some(path);
+            cover_mime = Some(mime);
+        }
+    }
+
+    let mut toc_titles = HashMap::<String, String>::new();
+    if let Some(root) = epub.toc().contents() {
+        for entry in root.flatten() {
+            let Some(manifest_entry) = entry.manifest_entry() else {
+                continue;
+            };
+            let label = entry.label().trim();
+            if label.is_empty() {
+                continue;
+            }
+            let href = manifest_entry.href().path();
+            let title = label.chars().take(200).collect::<String>();
+            toc_titles.insert(href.as_str().to_owned(), title.clone());
+            toc_titles.insert(href.decode().into_owned(), title);
         }
     }
 
@@ -919,7 +978,7 @@ fn parse_epub(
     }
     let reader = epub
         .reader_builder()
-        .linear_behavior(LinearBehavior::LinearOnly)
+        .linear_behavior(LinearBehavior::Original)
         .create();
     if reader.len() > MAX_SPINE_CHAPTERS {
         return Err(AppError::invalid_epub("The EPUB has too many chapters."));
@@ -944,11 +1003,20 @@ fn parse_epub(
             .write(true)
             .open(book_dir.join(format!("chapter-{chapter_id}.html")))
             .map_err(|_| AppError::storage())?;
+        storage::set_private_permissions(
+            &book_dir.join(format!("chapter-{chapter_id}.html")),
+            false,
+        )?;
         file.write_all(html.as_bytes())
             .map_err(|_| AppError::storage())?;
+        file.sync_all().map_err(|_| AppError::storage())?;
         chapters.push(ParsedChapter {
             id: chapter_id,
-            title: first_heading(&html, order),
+            title: chapter_title(
+                &html,
+                toc_titles.get(&document_href).map(String::as_str),
+                order,
+            ),
             order,
             text,
             start_location: next_location,
@@ -987,6 +1055,7 @@ pub fn parse_staged_epub(root: &Path, mut staged: StagedEpub) -> AppResult<Prepa
     let id = Uuid::new_v4().to_string();
     let staging_dir = root.join(storage::STAGING_DIR).join(format!("book-{id}"));
     fs::create_dir(&staging_dir).map_err(|_| AppError::storage())?;
+    storage::set_private_permissions(&staging_dir, true)?;
     let source_path = staging_dir.join("source.epub");
     let staged_path = staged.path.as_deref().ok_or_else(AppError::storage)?;
     if let Err(error) = fs::rename(staged_path, &source_path) {
@@ -1189,10 +1258,13 @@ pub fn publish_import(root: &Path, mut prepared: PreparedImport) -> AppResult<Pu
         root,
         &prepared.parsed.as_ref().ok_or_else(AppError::storage)?.id,
     )?;
+    storage::sync_directory(&staging_dir.join("assets"))?;
+    storage::sync_directory(staging_dir)?;
     fs::rename(staging_dir, &final_dir).map_err(|error| {
         tracing::error!(%error, "failed to publish generated book files");
         AppError::storage()
     })?;
+    storage::sync_directory(&root.join(storage::BOOKS_DIR))?;
     prepared.staging_dir = None;
     Ok(PublishedImport {
         parsed: prepared.parsed.take().ok_or_else(AppError::storage)?,
@@ -1337,7 +1409,7 @@ mod tests {
                 br#"<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head><title>Opening</title></head>
-  <body><h1>Opening</h1><p>A complete EPUB fixture for the Rust importer.</p></body>
+  <body><h1>Heading fallback</h1><p>A complete EPUB fixture for the Rust importer.</p></body>
 </html>"#,
             )
             .unwrap();
@@ -1399,10 +1471,10 @@ mod tests {
             "generated.png".to_owned(),
         )]);
         let html = sanitized_html(
-            r#"<p onclick="bad()">Hello<script>bad()</script></p>
+            r##"<p id="note" onclick="bad()">Hello<script>bad()</script></p>
                <form><input value="secret"></form>
                <img src="https://example.com/tracker.png">
-               <img src="../images/safe.png" onerror="bad()">"#,
+               <img src="../images/safe.png" onerror="bad()"><a href="#note">Back</a>"##,
             "/OPS/text/chapter.xhtml",
             &images,
         );
@@ -1410,9 +1482,11 @@ mod tests {
         assert!(!html.contains("form"));
         assert!(!html.contains("onclick"));
         assert!(!html.contains("onerror"));
+        assert!(html.contains("id=\"note\""));
+        assert!(html.contains("href=\"#note\""));
         assert!(!html.contains("https://"));
         assert!(html.contains("assets/generated.png"));
-        assert_eq!(extract_plain_text(&html), "Hello");
+        assert_eq!(extract_plain_text(&html), "Hello Back");
     }
 
     #[test]

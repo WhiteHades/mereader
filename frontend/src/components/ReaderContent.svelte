@@ -55,7 +55,7 @@
   let userScrolled = false;
   let previousSettingsSignature: string | null = null;
 
-  const generatedAssetPattern = /^assets\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|gif|webp|avif))$/;
+  const generatedAssetPattern = /^assets\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|gif|webp))$/;
 
   onMount(() => {
     currentLocation = initialLocation;
@@ -94,6 +94,13 @@
 
   export function focusContent(): void {
     scroller?.focus({ preventScroll: true });
+  }
+
+  export function flushPosition(): void {
+    if (!scrollFrame) return;
+    cancelAnimationFrame(scrollFrame);
+    scrollFrame = 0;
+    reportVisiblePosition();
   }
 
   async function navigateToLocation(location: number, reportPosition: boolean): Promise<void> {
@@ -190,19 +197,26 @@
     const document = new DOMParser().parseFromString(html, 'text/html');
     const objectUrls: string[] = [];
     try {
-      for (const image of document.querySelectorAll<HTMLImageElement>('img[src]')) {
-        const source = image.getAttribute('src') ?? '';
-        const match = generatedAssetPattern.exec(source);
-        if (!match) {
-          image.removeAttribute('src');
-          continue;
-        }
-        const asset = await getChapterAsset(bookId, match[1]);
-        const objectUrl = URL.createObjectURL(
-          new Blob([Uint8Array.from(asset.data)], { type: asset.mimeType }),
-        );
-        objectUrls.push(objectUrl);
-        image.setAttribute('src', objectUrl);
+      const images = [...document.querySelectorAll<HTMLImageElement>('img[src]')];
+      for (let offset = 0; offset < images.length; offset += 4) {
+        await Promise.all(images.slice(offset, offset + 4).map(async (image) => {
+          const source = image.getAttribute('src') ?? '';
+          const match = generatedAssetPattern.exec(source);
+          if (!match) {
+            image.removeAttribute('src');
+            return;
+          }
+          try {
+            const asset = await getChapterAsset(bookId, match[1]);
+            const objectUrl = URL.createObjectURL(
+              new Blob([Uint8Array.from(asset.data)], { type: asset.mimeType }),
+            );
+            objectUrls.push(objectUrl);
+            image.setAttribute('src', objectUrl);
+          } catch {
+            image.removeAttribute('src');
+          }
+        }));
       }
       return { html: document.body.innerHTML, objectUrls };
     } catch (error) {
@@ -283,23 +297,28 @@
     userScrolled = true;
     cancelAnimationFrame(scrollFrame);
     scrollFrame = requestAnimationFrame(() => {
-      if (!scroller || !currentChapter) return;
-      const location = lastFullyVisibleLocation(
-        textAnchors,
-        scroller.getBoundingClientRect(),
-        currentChapter.startLocation,
-        currentChapter.endLocation,
-      );
-      if (location === currentLocation) return;
-      currentLocation = location;
-      const index = chapterIndex();
-      const progressChapter = location === currentChapter.endLocation &&
-        currentChapter.startLocation < currentChapter.endLocation &&
-        index >= 0 && index < chapters.length - 1
-        ? chapters[index + 1]
-        : currentChapter;
-      onPositionChange({ location, chapterId: progressChapter.id });
+      scrollFrame = 0;
+      reportVisiblePosition();
     });
+  }
+
+  function reportVisiblePosition(): void {
+    if (!scroller || !currentChapter) return;
+    const location = lastFullyVisibleLocation(
+      textAnchors,
+      scroller.getBoundingClientRect(),
+      currentChapter.startLocation,
+      currentChapter.endLocation,
+    );
+    if (location === currentLocation) return;
+    currentLocation = location;
+    const index = chapterIndex();
+    const progressChapter = location === currentChapter.endLocation &&
+      currentChapter.startLocation < currentChapter.endLocation &&
+      index >= 0 && index < chapters.length - 1
+      ? chapters[index + 1]
+      : currentChapter;
+    onPositionChange({ location, chapterId: progressChapter.id });
   }
 
   function chapterIndex(): number {

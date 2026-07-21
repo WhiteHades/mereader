@@ -19,6 +19,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 import {
   askBook,
+  cancelAiRequest,
   deleteBook,
   errorMessage,
   getAiStatus,
@@ -49,6 +50,7 @@ describe('Tauri command wrappers', () => {
     await deleteBook('book-1');
     await getAiStatus('book-1');
     await reindexBook('book-1');
+    await cancelAiRequest('request-1');
 
     expect(mocks.invoke.mock.calls).toEqual([
       ['list_books'],
@@ -64,6 +66,7 @@ describe('Tauri command wrappers', () => {
       ['delete_book', { bookId: 'book-1' }],
       ['get_ai_status', { bookId: 'book-1' }],
       ['reindex_book', { bookId: 'book-1' }],
+      ['cancel_ai_request', { requestId: 'request-1' }],
     ]);
   });
 
@@ -72,7 +75,7 @@ describe('Tauri command wrappers', () => {
     const onEvent = vi.fn();
     mocks.invoke.mockResolvedValue(response);
 
-    await expect(askBook('book-1', 'Why?', onEvent)).resolves.toBe(response);
+    await expect(askBook('book-1', 'request-1', 'Why?', onEvent)).resolves.toBe(response);
     const channel = mocks.channels[0];
     const event: AiEvent = { type: 'delta', delta: 'Part' };
     channel.onmessage(event);
@@ -80,6 +83,7 @@ describe('Tauri command wrappers', () => {
     expect(onEvent).toHaveBeenCalledWith(event);
     expect(mocks.invoke).toHaveBeenCalledWith('ask_book', {
       bookId: 'book-1',
+      requestId: 'request-1',
       question: 'Why?',
       onEvent: channel,
     });
